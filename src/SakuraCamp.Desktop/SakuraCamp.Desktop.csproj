@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SakuraCamp.Core\SakuraCamp.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="MainWindow.Enhanced.xaml" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>SakuraCamp</AssemblyName>
+    <Product>樱火营地 SakuraCamp</Product>
+    <Description>饥荒联机版与 SakuraFrp 本地开服工具</Description>
+  </PropertyGroup>
+
+</Project>

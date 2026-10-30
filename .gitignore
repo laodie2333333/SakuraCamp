@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.vs/
+work/
+outputs/
+dist/
+*.user
+cluster_token.txt
+settings.json
+*.log
