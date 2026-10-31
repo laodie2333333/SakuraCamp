@@ -194,6 +194,7 @@ var emptyProfile = new WorldProfile { CreationKey = Guid.NewGuid().ToString("N")
 var emptyRecovery = await absentCreator.RecoverCreationAsync("fixture-key", emptyProfile, false);
 Check(emptyRecovery.NodeUnlocked && !emptyRecovery.ConfirmationRequired && emptyProfile.CreationNodeId is null,
     "definitively failed creation without matching tunnels unlocks node after read-only check");
+await NodeChangeChecks.Run(Check);
 Console.WriteLine($"ALL {passed} CHECKS PASSED. Fixtures: {workspace}");
 
 sealed class FixtureHandler(Func<HttpRequestMessage, string> respond) : HttpMessageHandler

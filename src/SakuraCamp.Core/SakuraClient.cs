@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace SakuraCamp.Core;
 
-public sealed class SakuraClient(HttpClient client)
+public sealed partial class SakuraClient(HttpClient client)
 {
     public async Task WaitForOnlineAsync(string token, IReadOnlyList<int> ids, TimeSpan? timeout = null,
         TimeSpan? pollInterval = null, Action<string>? progress = null)

@@ -138,6 +138,7 @@ public partial class MainWindow : Window
             CreationScope.SelectedIndex = profile?.PublicServer == true ? 1 : 0;
             RestoreWorldNode(profile);
             RecoveryButton.Visibility = profile?.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            RetryNodeChange.Visibility = profile?.NodeChange is not null || profile?.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateTunnelFields();
             ResetLiveStatus();
             LoadWorldCredentials(world);
@@ -152,6 +153,7 @@ public partial class MainWindow : Window
     {
         MasterAddress.IsReadOnly = CavesAddress.IsReadOnly = true;
         settings.Profiles.TryGetValue(CurrentWorld?.Path ?? "", out var profile);
+        if (profile?.NodeChange is not null) { MasterAddress.Text = CavesAddress.Text = ""; return; }
         MasterAddress.Text = (MasterTunnel.SelectedItem as TunnelInfo)?.ConnectionAddress ?? profile?.MasterAddress ?? "";
         CavesAddress.Text = CurrentWorld?.HasCaves == true ? (CavesTunnel.SelectedItem as TunnelInfo)?.ConnectionAddress ?? profile?.CavesAddress ?? "" : "";
         MasterAddress.ToolTip = CavesAddress.ToolTip = "一键开服会读取并启动当前世界的樱花通道；地址由所选通道自动生成";
@@ -166,6 +168,7 @@ public partial class MainWindow : Window
     private LaunchPlan BuildPlan()
     {
         var world = RequireWorld();
+        if (settings.Profiles.GetValueOrDefault(world.Path)?.NodeChange is not null) throw new InvalidOperationException("节点更换尚未完成，请先继续配置节点，完成后再开服。");
         var master = MasterTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("地上隧道尚未配置完成，请在联机设置中选择节点并保存。");
         var caves = world.HasCaves ? CavesTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("洞穴隧道尚未配置完成，请重新保存联机设置。") : null;
         if (caves is not null && (caves.Node != master.Node || caves.Id == master.Id)) throw new InvalidOperationException("地上与洞穴隧道不在同一节点或编号重复，请检查樱花面板中的当前世界隧道。");
@@ -217,9 +220,14 @@ public partial class MainWindow : Window
     {
         if (CreationNode is null) return;
         var previous = (CreationNode.SelectedItem as NodeInfo)?.Id;
-        CreationNode.ItemsSource = CreationScope.SelectedIndex < 0 ? Array.Empty<NodeInfo>()
-            : creationNodes.Where(n => n.IsAvailable(CreationScope.SelectedIndex == 1)).OrderBy(n => n.Vip).ThenBy(n => n.Id).ToArray();
-        CreationNode.SelectedValue = previous;
+        suppressNodeSelection++;
+        try
+        {
+            CreationNode.ItemsSource = CreationScope.SelectedIndex < 0 ? Array.Empty<NodeInfo>()
+                : creationNodes.Where(n => n.IsAvailable(CreationScope.SelectedIndex == 1)).OrderBy(n => n.Vip).ThenBy(n => n.Id).ToArray();
+            CreationNode.SelectedValue = previous;
+        }
+        finally { suppressNodeSelection--; }
     }
     private async void LoadNodes_Click(object sender, RoutedEventArgs e) => await Guard(LoadNodesAsync);
     private async Task LoadNodesAsync()
@@ -534,6 +542,7 @@ public partial class MainWindow : Window
             var saveOverlayTask = ShowModSettingsAsync(saveDialog);
             await saveDialog.SaveSmokeAsync(); await saveOverlayTask;
             if (!saveInvoked) throw new InvalidOperationException("Mod UI save callback not invoked");
+            await VerifyNodeSelectionSmokeAsync();
             VerifySavedSettingsSmoke(directory);
             await VerifyConnectionLayoutSmokeAsync(directory);
             await VerifyModWatchingSmokeAsync(directory);
@@ -564,7 +573,7 @@ public partial class MainWindow : Window
             SecretStore.Save(testSecretPath, "smoke-test-secret");
             if (SecretStore.Load(testSecretPath) != "smoke-test-secret") throw new InvalidOperationException("DPAPI round-trip failed");
             File.Delete(testSecretPath);
-            var report = new { Worlds = WorldList.Items.Count, Selected = CurrentWorld?.Folder, Mods = mods.Count, ServerFound = File.Exists(ServerPath.Text), FrpcFound = File.Exists(FrpcPath.Text), Tabs = Tabs.Items.Count, Dpapi = true, AutomaticAddressVerified = automaticAddressVerified, CreationNodeFilterVerified = true, OneClickAlwaysStartsTunnels = true, LegacyManualProfileVerified = true, LiveStatusVerified = true, OneSecondUpdates = true, RefreshButtonRemoved = true, PersistentTunnelLogVerified = true, PlayerCardsVerified = true, PortraitsLoaded = characterAvatars.Count, ServerModCards = modCards.Count, ModImages = modCards.Count(c => c.Image is not null), ClientModsExcluded = true, ModConfigurationVerified = true, ModSearchAndFiltersVerified = true, ModSaveButtonVerified = saveInvoked, IntegratedModOverlay = true, IsolatedFunctionPages = true, GearTooltipDelayMs = 300, AutomaticModDetectionVerified = true, FixedNavigation = true, WorldCardSelection = true, MaskedInputsVisible = true, LongInputLayoutStable = true, RoundedOverlayContent = true, OnlyGearModTooltip = true, WorkshopIdHidden = true, SavedConnectionFieldsVerified = true, ErrorKeepsPage = true };
+            var report = new { Worlds = WorldList.Items.Count, Selected = CurrentWorld?.Folder, Mods = mods.Count, ServerFound = File.Exists(ServerPath.Text), FrpcFound = File.Exists(FrpcPath.Text), Tabs = Tabs.Items.Count, Dpapi = true, AutomaticAddressVerified = automaticAddressVerified, CreationNodeFilterVerified = true, OneClickAlwaysStartsTunnels = true, LegacyManualProfileVerified = true, LiveStatusVerified = true, OneSecondUpdates = true, RefreshButtonRemoved = true, PersistentTunnelLogVerified = true, PlayerCardsVerified = true, PortraitsLoaded = characterAvatars.Count, ServerModCards = modCards.Count, ModImages = modCards.Count(c => c.Image is not null), ClientModsExcluded = true, ModConfigurationVerified = true, ModSearchAndFiltersVerified = true, ModSaveButtonVerified = saveInvoked, IntegratedModOverlay = true, IsolatedFunctionPages = true, GearTooltipDelayMs = 300, AutomaticModDetectionVerified = true, FixedNavigation = true, WorldCardSelection = true, MaskedInputsVisible = true, LongInputLayoutStable = true, RoundedOverlayContent = true, OnlyGearModTooltip = true, WorkshopIdHidden = true, SavedConnectionFieldsVerified = true, ErrorKeepsPage = true, AutomaticNodeSelectionVerified = true };
             File.WriteAllText(Path.Combine(directory, "report.json"), System.Text.Json.JsonSerializer.Serialize(report));
             Application.Current.Shutdown(File.Exists(Path.Combine(directory, "error.txt")) ? 1 : 0);
         }

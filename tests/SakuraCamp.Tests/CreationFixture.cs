@@ -7,6 +7,12 @@ sealed class CreationFixture : HttpMessageHandler
     public List<Dictionary<string, object>> Tunnels { get; } = [];
     public int Creates { get; private set; }
     public int Edits { get; private set; }
+    public int DeleteCalls { get; private set; }
+    public bool PartialDeleteOnce { get; set; }
+    public bool LoseDeleteResponseOnce { get; set; }
+    public bool RejectDelete { get; set; }
+    public bool FailKickOnce { get; set; }
+    public List<string> Mutations { get; } = [];
     public int Flags { get; set; } = 4 | 32;
     public bool FailCavesOnce { get; set; }
     public bool LoseMasterResponseOnce { get; set; }
@@ -22,7 +28,7 @@ sealed class CreationFixture : HttpMessageHandler
         object data;
         if (request.Method == HttpMethod.Get)
         {
-            if (path == "/v4/nodes") data = new Dictionary<string, object> { ["216"] = new { name = "Fixture node", host = "frp-example.com", vip = 0, flag = Flags } };
+            if (path == "/v4/nodes") data = new Dictionary<string, object> { ["216"] = new { name = "Fixture node", host = "frp-example.com", vip = 0, flag = Flags }, ["217"] = new { name = "New node", host = "new-node.example.com", vip = 0, flag = Flags } };
             else if (path == "/v4/tunnels") data = HideTunnels ? new List<Dictionary<string, object>>() : Tunnels;
             else throw new Exception("Unexpected GET " + path);
         }
@@ -38,6 +44,7 @@ sealed class CreationFixture : HttpMessageHandler
                 if (FailCavesOnce && form["name"].EndsWith('c'))
                 { FailCavesOnce = false; return Reply(new { message = "fixture tunnel quota" }, HttpStatusCode.Forbidden); }
                 Creates++; CreatedForms.Add(form);
+                Mutations.Add("create:" + form["node"]);
                 var id = Creates + 100;
                 var port = 40000 + id;
                 Tunnels.Add(new() { ["id"] = id, ["name"] = form["name"], ["note"] = form["note"], ["node"] = int.Parse(form["node"]),
@@ -47,6 +54,19 @@ sealed class CreationFixture : HttpMessageHandler
             }
             else if (path == "/v4/tunnel/edit")
             { Edits++; Tunnels.Single(t => (int)t["id"] == int.Parse(form["id"]))["local_port"] = int.Parse(form["local_port"]); data = new { extra = "" }; }
+            else if (path == "/v4/tunnel/delete")
+            {
+                DeleteCalls++; Mutations.Add("delete:" + form["ids"]);
+                if (RejectDelete) return Reply(new { code = 403, message = "fixture delete denied" }, HttpStatusCode.Forbidden);
+                var ids = form["ids"].Split(',').Select(int.Parse).ToArray();
+                var deleted = PartialDeleteOnce ? ids.Take(1).ToArray() : ids;
+                PartialDeleteOnce = false;
+                Tunnels.RemoveAll(t => deleted.Contains((int)t["id"]));
+                if (LoseDeleteResponseOnce) { LoseDeleteResponseOnce = false; throw new HttpRequestException("fixture delete response lost"); }
+                var failed = FailKickOnce ? deleted : [];
+                FailKickOnce = false;
+                data = new { deleted, failed };
+            }
             else throw new Exception("Unexpected mutation " + path);
         }
         return Reply(data);

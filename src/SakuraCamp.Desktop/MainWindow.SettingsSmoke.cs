@@ -7,6 +7,29 @@ namespace SakuraCamp.Desktop;
 
 public partial class MainWindow
 {
+    private async Task VerifyNodeSelectionSmokeAsync()
+    {
+        var oldNodes = creationNodes; var oldItems = CreationNode.ItemsSource; var oldNode = CreationNode.SelectedItem; var count = 0;
+        try
+        {
+            nodeSelectionSmokeAction = _ => { count++; return Task.CompletedTask; };
+            creationNodes = [new(701, "Fixture A", "a.example.com", 0, 4 | 32), new(702, "Fixture B", "b.example.com", 0, 4 | 32)];
+            RestoreWorldNode(new() { CreationNodeId = 701 }); await nodeSelectionTask;
+            if (count != 0) throw new InvalidOperationException("Restoring saved node triggered tunnel replacement");
+            CreationNode.SelectedValue = 702; await nodeSelectionTask;
+            if (count != 1) throw new InvalidOperationException("User node selection did not trigger automatic configuration once");
+            RestoreWorldNode(new() { CreationNodeId = 702 }); await nodeSelectionTask;
+            if (count != 1) throw new InvalidOperationException("List refresh triggered tunnel replacement");
+        }
+        finally
+        {
+            nodeSelectionSmokeAction = null; creationNodes = oldNodes;
+            suppressNodeSelection++;
+            try { CreationNode.ItemsSource = oldItems; CreationNode.SelectedItem = oldNode; }
+            finally { suppressNodeSelection--; }
+        }
+    }
+
     private void VerifySavedSettingsSmoke(string directory)
     {
         var oldToken = KleiToken.Password; var oldPassword = WorldPassword.Password; var oldHint = TokenHint.Text;

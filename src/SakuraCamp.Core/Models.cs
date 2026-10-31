@@ -105,8 +105,18 @@ public sealed class WorldProfile
     public string CreationKey { get; set; } = "";
     public int? CreationNodeId { get; set; }
     public NodeInfo? SavedNode { get; set; }
+    public WorldNodeChange? NodeChange { get; set; }
     public bool PublicServer { get; set; }
     public HashSet<string> PendingTunnelShards { get; set; } = [];
+}
+
+public sealed class WorldNodeChange
+{
+    public required NodeInfo Target { get; set; }
+    public string OldCreationKey { get; set; } = "";
+    public string NewCreationKey { get; set; } = "";
+    public List<TunnelInfo> OldTunnels { get; set; } = [];
+    public bool OldDeleted { get; set; }
 }
 
 public sealed record NodeInfo(int Id, string Name, string Host, int Vip, int Flag)

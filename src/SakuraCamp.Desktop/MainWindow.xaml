@@ -309,7 +309,7 @@
                 </StackPanel>
                 <Border HorizontalAlignment="Right" VerticalAlignment="Center"
                         Background="#2A3041" CornerRadius="5" Padding="12,7">
-                    <TextBlock Text="Windows 本地开服  ·  预览版 0.2.3"
+                    <TextBlock Text="Windows 本地开服  ·  预览版 0.2.4"
                                Foreground="{StaticResource Muted}" FontSize="12"/>
                 </Border>
             </Grid>
@@ -388,18 +388,18 @@
                     </Border>
                 </UniformGrid>
 </Grid>
-                        <TextBlock Text="填写密钥并选择节点，地上和洞穴隧道及连接地址由程序自动配置。" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
+                        <TextBlock Text="填写樱花密钥后选择节点，即自动为此世界配置通道；更换节点会先删除本程序为此世界创建的旧通道，再创建新通道。" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
                         <Grid x:Name="ConnectionFields" MaxWidth="1000" HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="24"/><ColumnDefinition/></Grid.ColumnDefinitions>
                             <Grid x:Name="ApiPanel" Grid.ColumnSpan="3">
                                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="24"/><ColumnDefinition/></Grid.ColumnDefinitions>
                                 <StackPanel><TextBlock Text="樱花访问密钥"/><PasswordBox x:Name="SakuraToken" Height="44"/></StackPanel>
-                                <StackPanel Grid.Column="2" MinWidth="0"><TextBlock Text="樱花节点"/><DockPanel><Button DockPanel.Dock="Right" Content="读取节点" Click="LoadNodes_Click" Margin="12,6,0,12" Padding="14,10"/><ComboBox x:Name="CreationNode" DisplayMemberPath="Label" SelectedValuePath="Id" Height="44"/></DockPanel></StackPanel>
+                                <StackPanel Grid.Column="2" MinWidth="0"><TextBlock Text="樱花节点"/><DockPanel><Button DockPanel.Dock="Right" Content="读取节点" Click="LoadNodes_Click" Margin="12,6,0,12" Padding="14,10"/><ComboBox x:Name="CreationNode" SelectionChanged="CreationNode_SelectionChanged" DisplayMemberPath="Label" SelectedValuePath="Id" Height="44"/></DockPanel></StackPanel>
                             </Grid>
                             <StackPanel Grid.Row="1"><TextBlock Text="科雷独立服务器令牌"/><PasswordBox x:Name="KleiToken" Height="44" ToolTip="pds- 开头；留空保留当前令牌"/><TextBlock x:Name="TokenHint" Style="{StaticResource Hint}" FontSize="11" Margin="0,-5,0,14"/></StackPanel>
                             <StackPanel Grid.Row="1" Grid.Column="2"><TextBlock Text="服务器密码（可选）"/><PasswordBox x:Name="WorldPassword" Height="44" ToolTip="留空表示无密码"/></StackPanel>
-                            <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,10,0,0"><Button Content="保存联机设置" Background="#F5A962" Foreground="#1E2330" Click="SaveConnection_Click"/><Button Content="获取科雷令牌 ↗" Click="Klei_Click"/><Button x:Name="RecoveryButton" Visibility="Collapsed" Content="恢复未完成的隧道配置" Click="RecoverCreation_Click"/></WrapPanel>
+                            <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,10,0,0"><Button Content="保存联机设置" Background="#F5A962" Foreground="#1E2330" Click="SaveConnection_Click"/><Button Content="获取科雷令牌 ↗" Click="Klei_Click"/><Button x:Name="RetryNodeChange" Content="继续配置节点" Visibility="Collapsed" Click="RetryNodeChange_Click"/><Button x:Name="RecoveryButton" Visibility="Collapsed" Content="恢复未完成的隧道配置" Click="RecoverCreation_Click"/></WrapPanel>
                         </Grid>
                         <Border Background="#2A3041" CornerRadius="8" Padding="14" Margin="0,16,0,0"><StackPanel>
                             <WrapPanel><Button Content="复制朋友连接命令" Click="CopyFriend_Click"/><Button Content="复制房主连接命令" Click="CopyHost_Click"/><Button Content="打开樱花面板 ↗" Click="SakuraPanel_Click"/></WrapPanel>
