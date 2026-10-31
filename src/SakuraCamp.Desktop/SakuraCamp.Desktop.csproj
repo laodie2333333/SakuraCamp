@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\SakuraCamp.Core\SakuraCamp.Core.csproj" />
@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <None Remove="MainWindow.Enhanced.xaml" />
+    <Resource Include="Assets\Logo.png" />
+    <Resource Include="Assets\SakuraCamp.ico" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -15,6 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>SakuraCamp</AssemblyName>
+    <ApplicationIcon>Assets\SakuraCamp.ico</ApplicationIcon>
     <Product>樱火营地 SakuraCamp</Product>
     <Description>饥荒联机版与 SakuraFrp 本地开服工具</Description>
   </PropertyGroup>
