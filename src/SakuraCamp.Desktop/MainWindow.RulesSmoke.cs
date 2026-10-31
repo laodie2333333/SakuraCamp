@@ -33,11 +33,12 @@ public partial class MainWindow
             if (icons.Length != ruleRows.Count || ruleRows.Single(r => r.Shard == "Master" && r.Definition.Key == "weather").Icon is null)
                 throw new InvalidOperationException($"Game rule icons missing: {icons.Length}/{ruleRows.Count}");
             if (!VisualChildren<Image>(RulesGroups).Any(i => i.Source is not null)) throw new InvalidOperationException("Rule icons not bound to cards");
+            await VerifyRulePerformanceSmokeAsync(directory);
             var order = Tabs.Items.Cast<TabItem>().Select(t => t.Header as string).ToArray();
             if (string.Join(",", order) != "世界总览,联机设置,世界规则,Mod 管理,服务器状态,文件目录,日志与诊断") throw new InvalidOperationException("Navigation order does not match requested order");
             var master = ruleRows.Single(r => r.Shard == "Master" && r.Definition.Key == "weather");
             var cave = ruleRows.Single(r => r.Shard == "Caves" && r.Definition.Key == "weather");
-            RulesSearch.Text = master.Name; UpdateLayout();
+            RulesSearch.Text = master.Name; ruleSearchFilter.Flush(); UpdateLayout();
             var editors = VisualChildren<ComboBox>(RulesGroups).Where(c => c.DataContext is WorldRuleRow).ToArray();
             var masterEditor = editors.Single(c => c.DataContext == master);
             masterEditor.SelectedItem = master.Choices.Single(c => c.Value.Code == "\"never\"");
@@ -46,7 +47,7 @@ public partial class MainWindow
             CavesRulesButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();
             var caveEditor = VisualChildren<ComboBox>(RulesGroups).Single(c => c.DataContext == cave);
             caveEditor.SelectedItem = cave.Choices.Single(c => c.Value.Code == "\"often\"");
-            RulesSearch.Clear(); UpdateLayout();
+            RulesSearch.Clear(); ruleSearchFilter.Flush(); UpdateLayout();
             if (ruleRows.Any(r => r.Shard == "Caves" && r.Definition.MasterControlled)) throw new InvalidOperationException("Caves exposed ignored master-controlled options");
             SaveSmokeScreenshot(Path.Combine(directory, "world-rules-caves.png"));
             MasterRulesButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();

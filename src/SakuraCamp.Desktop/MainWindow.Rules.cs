@@ -7,6 +7,18 @@ namespace SakuraCamp.Desktop;
 
 public partial class MainWindow
 {
+    private readonly SearchFilter ruleSearchFilter;
+    private bool refreshingRuleCategories;
+    private int ruleColumns;
+    private WorldRuleRow[] filteredRules = [];
+    private ScrollViewer RulesScroll
+    {
+        get { RulesGroups.ApplyTemplate(); return (ScrollViewer)RulesGroups.Template.FindName("RulesScrollViewer", RulesGroups); }
+    }
+    private sealed record RuleBand(string Name, WorldRuleRow[] Rows)
+    {
+        public Visibility HeadingVisibility => Name.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
     private IReadOnlyList<WorldRuleDefinition> ruleCatalog = [];
     private List<WorldRuleRow> ruleRows = [];
     private WorldRuleSnapshot? ruleSnapshot;
@@ -36,6 +48,7 @@ public partial class MainWindow
     {
         ++ruleGeneration; ruleRows = []; ruleSnapshot = null; ruleShard = "Master"; loadingRules = false;
         if (RulesGroups is null) return;
+        filteredRules = []; ruleColumns = 0;
         RulesGroups.ItemsSource = null; RulesCategory.ItemsSource = null; RulesSearch.Clear();
         RulesHeading.Text = "世界规则"; RulesEmpty.Text = "正在读取当前世界规则…"; RulesEmpty.Visibility = Visibility.Visible;
         UpdateRuleEditing();
@@ -83,18 +96,32 @@ public partial class MainWindow
         if (RulesCategory is null) return;
         var groups = ruleRows.Where(r => r.Shard == ruleShard).Select(r => r.Definition.Group).Distinct().Select(g => new { Key = g, Label = g }).ToList();
         groups.Insert(0, new { Key = "", Label = "全部规则分类" });
-        RulesCategory.ItemsSource = groups; RulesCategory.SelectedIndex = 0;
+        refreshingRuleCategories = true;
+        try { RulesCategory.ItemsSource = groups; RulesCategory.SelectedIndex = 0; }
+        finally { refreshingRuleCategories = false; }
         ApplyRuleFilter(); UpdateRuleEditing(); RulesScroll.ScrollToTop();
     }
-    private void RulesFilter_Changed(object sender, TextChangedEventArgs e) => ApplyRuleFilter();
-    private void RulesCategory_Changed(object sender, SelectionChangedEventArgs e) => ApplyRuleFilter();
+    private void RulesCategory_Changed(object sender, SelectionChangedEventArgs e) { if (!refreshingRuleCategories) ApplyRuleFilter(); }
+    private void RulesGroups_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.WidthChanged) ApplyRuleFilter();
+    }
     private void ApplyRuleFilter()
     {
         if (RulesGroups is null || RulesSearch is null) return;
         var search = RulesSearch.Text.Trim(); var group = RulesCategory.SelectedValue as string ?? "";
         var rows = ruleRows.Where(r => r.Shard == ruleShard && (group.Length == 0 || r.Definition.Group == group) &&
             (search.Length == 0 || (r.Name + r.Definition.Key).Contains(search, StringComparison.CurrentCultureIgnoreCase))).ToArray();
-        RulesGroups.ItemsSource = rows.GroupBy(r => r.Definition.Group).Select(g => new { Name = g.Key, Rows = g.ToArray() }).ToArray();
+        // Virtualize complete rows of cards, preserving the grouped, responsive card layout.
+        // Only viewport rows create ComboBoxes; off-screen values stay in ruleRows.
+        var columns = Math.Max(1, (int)((RulesGroups.ActualWidth - 20) / 352));
+        if (ruleColumns != columns || !filteredRules.SequenceEqual(rows) || RulesGroups.ItemsSource is null)
+        {
+            ruleColumns = columns; filteredRules = rows;
+            RulesGroups.ItemsSource = rows.GroupBy(r => r.Definition.Group).SelectMany(g => g.Chunk(columns)
+                .Select((band, index) => new RuleBand(index == 0 ? g.Key : "", band))).ToArray();
+            RulesScroll.ScrollToTop();
+        }
         RulesEmpty.Visibility = rows.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
         if (ruleSnapshot is not null) RulesEmpty.Text = "没有符合筛选条件的规则。";
     }

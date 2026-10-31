@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ruleSearchFilter = new SearchFilter(RulesSearch, ApplyRuleFilter);
+        modSearchFilter = new SearchFilter(ModSearch, ApplyModFilter);
         InitializeLogging();
         session.Log += QueueSessionLog;
         session.State += (name, state) => Dispatcher.BeginInvoke(() =>
@@ -508,9 +510,9 @@ public partial class MainWindow : Window
             foreach (var card in modCards) card.SetEditable(true);
             var sampleMod = modCards.FirstOrDefault(c => c.Mod.Downloaded && c.Mod.Error.Length == 0 && c.Mod.Options.Count(o => !o.IsHeading && o.Choices.Count > 1) >= 2)
                 ?? throw new InvalidOperationException("No real configurable local server Mod found");
-            ModSearch.Text = sampleMod.Name;
+            ModSearch.Text = sampleMod.Name; modSearchFilter.Flush();
             if (ModList.Items.Count == 0) throw new InvalidOperationException("Mod card search failed");
-            ModSearch.Clear();
+            ModSearch.Clear(); modSearchFilter.Flush();
             ModFilter.SelectedIndex = 1;
             if (ModList.Items.Cast<ModCard>().Any(c => !c.Enabled)) throw new InvalidOperationException("Enabled Mod filter failed");
             ModFilter.SelectedIndex = 0;

@@ -7,6 +7,7 @@ namespace SakuraCamp.Desktop;
 
 public partial class MainWindow
 {
+    private readonly SearchFilter modSearchFilter;
     private IReadOnlyList<InstalledMod> installedMods = [];
     private IReadOnlyList<ModCard> modCards = [];
     private WorldModSnapshot? modSnapshot;
@@ -57,7 +58,7 @@ public partial class MainWindow
         var visible = modCards.Where(c => search.Length == 0 || (c.Name + " " + c.Mod.Author + " " + c.Mod.Key).Contains(search, StringComparison.CurrentCultureIgnoreCase))
             .Where(c => index switch { 1 => c.Enabled, 2 => !c.Enabled, 3 => !c.Mod.Downloaded, _ => true })
             .OrderByDescending(c => c.Enabled).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
-        ModList.ItemsSource = visible;
+        if (ModList.ItemsSource is not ModCard[] previous || !previous.SequenceEqual(visible)) ModList.ItemsSource = visible;
         ModEmpty.Visibility = visible.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         ModEmpty.Text = modCards.Count == 0 ? "未找到服务器 Mod。请先在 Steam 下载，或在文件目录中核对创意工坊路径。" : "没有符合筛选条件的服务器 Mod。";
     }
@@ -67,7 +68,6 @@ public partial class MainWindow
         foreach (var card in modCards) card.SetEditable(modSnapshot is not null && !busy && !session.HasProcesses);
         if (ModRunHint is not null) ModRunHint.Visibility = session.HasProcesses ? Visibility.Visible : Visibility.Collapsed;
     }
-    private void ModSearch_TextChanged(object sender, TextChangedEventArgs e) => ApplyModFilter();
     private void ModFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyModFilter();
 
     private async void ToggleMod_Click(object sender, RoutedEventArgs e)

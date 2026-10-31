@@ -30,6 +30,6 @@ internal sealed class ModCard(InstalledMod mod, WorldModSnapshot? snapshot, Imag
     private bool editable;
     public bool CanToggle => editable && snapshot is not null && (Enabled || mod.Downloaded && mod.Error.Length == 0 && !mod.ClientOnly);
     public bool CanConfigure => editable && snapshot is not null && mod.Downloaded && mod.Error.Length == 0;
-    public void SetEditable(bool value) { editable = value; PropertyChanged?.Invoke(this, new(nameof(CanToggle))); PropertyChanged?.Invoke(this, new(nameof(CanConfigure))); }
+    public void SetEditable(bool value) { if (editable == value) return; editable = value; PropertyChanged?.Invoke(this, new(nameof(CanToggle))); PropertyChanged?.Invoke(this, new(nameof(CanConfigure))); }
     public event PropertyChangedEventHandler? PropertyChanged;
 }

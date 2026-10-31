@@ -21,7 +21,7 @@ internal sealed class WorldRuleRow : INotifyPropertyChanged
     public bool Dirty => selected != original;
     public string ChangeLabel => Dirty ? "已修改 · 保存后下次开服生效" : original.Value == LuaValue.Nil ? "沿用存档中的设置" : "当前已保存的规则";
     private bool editable;
-    public bool Editable { get => editable; set { editable = value; Changed(nameof(Editable)); } }
+    public bool Editable { get => editable; set { if (editable == value) return; editable = value; Changed(nameof(Editable)); } }
     public WorldRuleRow(WorldRuleDefinition definition, string shard, LuaValue? current, System.Windows.Media.ImageSource? icon = null)
     {
         Definition = definition; Shard = shard; Icon = icon;
