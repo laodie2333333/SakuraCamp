@@ -20,6 +20,7 @@ public partial class MainWindow
             File.WriteAllText(Path.Combine(fixture, shard, "leveldataoverride.lua"), "return {id='SURVIVAL',name='Fixture',desc='',location='" + (shard == "Master" ? "forest" : "cave") + "',overrides={weather='default',unknown_setting={keep=true}}}");
         }
         File.WriteAllText(Path.Combine(fixture, "cluster.ini"), "[NETWORK]\ncluster_name=世界规则验证\n");
+        File.WriteAllText(Path.Combine(fixture, "Master", "worldgenoverride.lua"), "KLEI     1 return {override_enabled=true,overrides={weather='default',world_size='small'}}");
         var world = Discovery.ReadWorld(fixture);
         var levelOriginal = File.ReadAllBytes(Path.Combine(fixture, "Master", "leveldataoverride.lua"));
         try
@@ -76,7 +77,7 @@ public partial class MainWindow
             await VerifyBackdropSmokeAsync(directory);
             File.WriteAllText(Path.Combine(directory, "world-rules-report.json"), System.Text.Json.JsonSerializer.Serialize(new
             { Definitions = ruleCatalog.Count, MainRules = ruleRows.Count(r => r.Shard == "Master"), CaveRules = ruleRows.Count(r => r.Shard == "Caves"), NavigationOrder = order,
-                SeparateShardValues = true, SaveButtonVerified = true, PendingRulesSaveWithoutNavigation = true, LevelDefinitionPreserved = true, MasterControlRespected = true, BlurredBackdrop = backdropEnabled, OpaqueText = true, RuleIcons = icons.Length, AllRuleIconsLoaded = true }));
+                KleiHeaderReadAndSaved = File.ReadAllText(Path.Combine(fixture, "Master", "worldgenoverride.lua")).StartsWith("KLEI     1 return "), SeparateShardValues = true, SaveButtonVerified = true, PendingRulesSaveWithoutNavigation = true, LevelDefinitionPreserved = true, MasterControlRespected = true, BlurredBackdrop = backdropEnabled, OpaqueText = true, RuleIcons = icons.Length, AllRuleIconsLoaded = true }));
         }
         finally
         {

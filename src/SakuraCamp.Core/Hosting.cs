@@ -222,7 +222,9 @@ public sealed class ManagedSession
         var child = new Child(name, process, ready, requiredSignals); children.Add(child);
         if (name == "樱花") Emit($"[樱花] 独立版 frpc 已启动，进程 ID {process.Id}；输出记录在本工具，不写入官方启动器日志。");
         State?.Invoke(name, "启动中");
-        readers[name] = Pump(child);
+        // Output can arrive continuously during world/Mod loading. Never run its
+        // parsing loop on the caller's UI synchronization context.
+        readers[name] = Task.Run(() => Pump(child));
         _ = Watch(child);
     }
     private async Task Pump(Child child)

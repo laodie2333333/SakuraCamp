@@ -25,7 +25,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        session.Log += line => Dispatcher.BeginInvoke(() => AppendLog(line));
+        InitializeLogging();
+        session.Log += QueueSessionLog;
         session.State += (name, state) => Dispatcher.BeginInvoke(() =>
         {
             StatusFor(name).Text = state;
@@ -270,7 +271,13 @@ public partial class MainWindow : Window
         RecoveryButton.Visibility = profile.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         StatusText.Text = text; AppendLog(text);
     });
-    private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(StartWorldAndTunnelsAsync);
+    private bool startingWorld;
+    private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
+    {
+        startingWorld = true; UpdateControls();
+        try { await StartWorldAndTunnelsAsync(); }
+        finally { startingWorld = false; }
+    });
     private async Task StartWorldAndTunnelsAsync()
     {
         RequireIdle();
@@ -285,7 +292,7 @@ public partial class MainWindow : Window
         session.SetSecrets(password, token, SakuraToken.Password.Trim());
         var selected = new List<TunnelInfo> { (TunnelInfo)MasterTunnel.SelectedItem! };
         if (plan.World.HasCaves) selected.Add((TunnelInfo)CavesTunnel.SelectedItem!);
-        var useLauncher = SakuraLauncherService.IsAvailable;
+        var useLauncher = await Task.Run(() => SakuraLauncherService.IsAvailable);
         if (!useLauncher)
         {
             if (System.Diagnostics.Process.GetProcessesByName("SakuraFrpService").Length > 0)
@@ -360,28 +367,46 @@ public partial class MainWindow : Window
     private async void Backup_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); var source = RequireWorld().Path; var path = await Task.Run(() => WorldFiles.Backup(source, store.BackupRoot)); AppendLog("完整备份：" + path); StatusText.Text = "备份完成。"; });
     private async void CopyFriend_Click(object sender, RoutedEventArgs e) => await CopyConnect(false);
     private async void CopyHost_Click(object sender, RoutedEventArgs e) => await CopyConnect(true);
-    private Task CopyConnect(bool local) => Guard(() => { var world = RequireWorld(); var ep = Endpoint.Parse(MasterAddress.Text); Clipboard.SetText(WorldFiles.Connect(local ? "127.0.0.1" : ep.Host, ep.Port, WorldFiles.Password(world))); StatusText.Text = "已复制连接命令（包含密码）。"; return Task.CompletedTask; });
-    private async void CopyMods_Click(object sender, RoutedEventArgs e) => await Guard(() => {
+    private Task CopyConnect(bool local) => ReadOnlyAction(async () =>
+    {
+        var world = RequireWorld(); var ep = Endpoint.Parse(MasterAddress.Text);
+        var password = await Task.Run(() => WorldFiles.Password(world));
+        CopyText(WorldFiles.Connect(local ? "127.0.0.1" : ep.Host, ep.Port, password));
+        StatusText.Text = "已复制连接命令（包含密码）。";
+    });
+    private async void CopyMods_Click(object sender, RoutedEventArgs e) => await ReadOnlyAction(() => {
         var snapshot = modSnapshot ?? throw new InvalidOperationException("本地 Mod 配置尚未就绪，请等待自动更新后重试。");
         WorldMods.CheckCurrent(snapshot);
-        Clipboard.SetText(WorldMods.SyncList(installedMods, snapshot)); StatusText.Text = "已复制当前世界启用的 Mod 清单和工坊链接。"; return Task.CompletedTask;
+        CopyText(WorldMods.SyncList(installedMods, snapshot)); StatusText.Text = "已复制当前世界启用的 Mod 清单和工坊链接。"; return Task.CompletedTask;
     });
     private async void RefreshMods_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentWorld is { } world) await RefreshModManagerAsync(world); });
     private async void ImportLog_Click(object sender, RoutedEventArgs e) => await Guard(() => { var dialog = new OpenFileDialog { Filter = "日志文件|*.txt;*.log|所有文件|*.*", Title = "选择朋友最近一次失败后的 client_log.txt" }; if (dialog.ShowDialog() == true) { var text = LogReader.Redact(LogReader.Tail(dialog.FileName, 512 * 1024), WorldPassword.Password, KleiToken.Password, SakuraToken.Password); AppendLog("客户端日志诊断：\n" + string.Join("\n", LogReader.Diagnose(text))); foreach (var line in text.Split('\n').TakeLast(350)) AppendLog(line.TrimEnd('\r')); StatusText.Text = "已导入脱敏日志。"; } return Task.CompletedTask; });
-    private async void ExportLog_Click(object sender, RoutedEventArgs e) => await Guard(() => { var dialog = new SaveFileDialog { FileName = "SakuraCamp-diagnostics.txt", Filter = "文本文件|*.txt" }; if (dialog.ShowDialog() == true) File.WriteAllText(dialog.FileName, LogReader.Redact(string.Join(Environment.NewLine, logLines), WorldPassword.Password, KleiToken.Password, SakuraToken.Password), Encoding.UTF8); return Task.CompletedTask; });
-    private void ClearLog_Click(object sender, RoutedEventArgs e) { logLines.Clear(); LogBox.Clear(); tunnelLines.Clear(); TunnelLogBox.Clear(); }
+    private async void ExportLog_Click(object sender, RoutedEventArgs e) => await ReadOnlyAction(() => { DrainPendingLogs(int.MaxValue); var dialog = new SaveFileDialog { FileName = "SakuraCamp-diagnostics.txt", Filter = "文本文件|*.txt" }; if (dialog.ShowDialog() == true) File.WriteAllText(dialog.FileName, LogReader.Redact(string.Join(Environment.NewLine, logLines), WorldPassword.Password, KleiToken.Password, SakuraToken.Password), Encoding.UTF8); return Task.CompletedTask; });
+    private void ClearLog_Click(object sender, RoutedEventArgs e) { pendingLogs.Clear(); pendingTunnelLogs.Clear(); logsDirty = tunnelLogsDirty = false; logLines.Clear(); LogBox.Clear(); tunnelLines.Clear(); TunnelLogBox.Clear(); }
     private void AppendLog(string line)
     {
         line = LogReader.Redact(line, SakuraToken.Password, KleiToken.Password, WorldPassword.Password);
         var formatted = $"{DateTime.Now:HH:mm:ss}  {line}";
         logLines.Enqueue(formatted); while (logLines.Count > 600) logLines.Dequeue();
-        LogBox.Text = string.Join(Environment.NewLine, logLines); LogBox.ScrollToEnd();
-        if (line.Contains("[樱花]", StringComparison.Ordinal) || line.Contains("[通道核验]", StringComparison.Ordinal) || line.StartsWith("一键开服：", StringComparison.Ordinal)) AppendTunnelLog(formatted);
+        logsDirty = true;
+        if (IsTunnelLog(line)) AppendTunnelLog(formatted);
     }
     private async Task Guard(Func<Task> action) { if (busy) return; busy = true; UpdateControls(); try { await action(); } catch (Exception ex) { ShowError(ex); } finally { busy = false; UpdateControls(); } }
     private void ShowError(Exception ex) { var message = LogReader.Redact(ex.Message, SakuraToken.Password, KleiToken.Password, WorldPassword.Password); StatusText.Text = message; AppendLog("提示：" + message); if (App.SmokeDirectory is not null) { File.WriteAllText(Path.Combine(App.SmokeDirectory, "error.txt"), message); return; } MessageBox.Show(this, message, "樱火营地", MessageBoxButton.OK, MessageBoxImage.Information); }
-    private void UpdateControls() { if (!initialized) return; var running = session.HasProcesses; WorldList.IsEnabled = !busy && !running; ConnectPanel.IsEnabled = !busy; SettingsPanel.IsEnabled = !busy && !running; StartButton.IsEnabled = !busy && !running && CurrentWorld is not null; StopButton.IsEnabled = !busy && running; ApiPanel.IsEnabled = !running; UpdateTunnelFields(); UpdateModEditing(); UpdateRuleEditing(); }
-    private async void Window_Closing(object? sender, CancelEventArgs e) { if (busy) { e.Cancel = true; StatusText.Text = "正在执行操作，请稍后再关闭。"; return; } if (!session.HasProcesses) return; e.Cancel = true; if (MessageBox.Show(this, "服务器正在运行。保存并关闭后退出工具？", "保存关服", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { await Guard(async () => { if (await session.StopAsync()) _ = Dispatcher.BeginInvoke(Close); }); } }
+    private void UpdateControls() { if (!initialized) return; var running = session.HasProcesses; WorldList.IsEnabled = !busy && !running; ConnectPanel.IsEnabled = true; ConnectionFields.IsEnabled = !busy && !running; SettingsPanel.IsEnabled = !busy && !running; StartButton.IsEnabled = !busy && !running && CurrentWorld is not null; StopButton.IsEnabled = !busy && running; ApiPanel.IsEnabled = !busy && !running; StartButton.Content = startingWorld ? "开服中…" : "▶  一键开服"; UpdateTunnelFields(); UpdateModEditing(); UpdateRuleEditing(); }
+    private async void Window_Closing(object? sender, CancelEventArgs e)
+    {
+        if (logsClosed) return;
+        if (busy) { e.Cancel = true; StatusText.Text = "正在执行操作，请稍后再关闭。"; return; }
+        e.Cancel = true;
+        if (session.HasProcesses)
+        {
+            if (MessageBox.Show(this, "服务器正在运行。保存并关闭后退出工具？", "保存关服", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            await Guard(async () => { if (await session.StopAsync()) { await FinishLogsAsync(); _ = Dispatcher.BeginInvoke(Close); } });
+        }
+        else { await FinishLogsAsync(); _ = Dispatcher.BeginInvoke(Close); }
+    }
+
     private void BrowseRoot_Click(object sender, RoutedEventArgs e) => PickFolder(RootPath, "选择 DoNotStarveTogether 存档目录");
     private void BrowseWorkshop_Click(object sender, RoutedEventArgs e) => PickFolder(WorkshopPath, "选择 steamapps\\workshop 目录");
     private void BrowseServer_Click(object sender, RoutedEventArgs e) => PickExe(ServerPath, "选择饥荒独立服务器程序");
@@ -457,7 +482,8 @@ public partial class MainWindow : Window
             BeginTunnelLog();
             AppendLog("[樱花] 离线界面演示：独立 frpc 已启动。");
             for (var logIndex = 0; logIndex < 605; logIndex++) AppendLog("离线日志保留检查 " + logIndex);
-            if (!TunnelLogBox.Text.Contains("独立 frpc") || LogBox.Text.Contains("独立 frpc") || !File.ReadAllText(tunnelLogPath!).Contains("独立 frpc"))
+            await CompleteTunnelFileForSmokeAsync();
+            if (!string.Join("\n", tunnelLines).Contains("独立 frpc") || string.Join("\n", logLines).Contains("独立 frpc") || !File.ReadAllText(tunnelLogPath!).Contains("独立 frpc"))
                 throw new InvalidOperationException("Tunnel log must survive game log rollover and persist to disk");
             logLines.Clear(); LogBox.Clear();
             ShowTunnelHealth("地上 在线 · 洞穴 在线（离线演示）");
@@ -525,6 +551,8 @@ public partial class MainWindow : Window
             await VerifyConnectionLayoutSmokeAsync(directory);
             await VerifyDarkScrollingSmokeAsync(directory);
             await VerifyMotionSmokeAsync(directory);
+            await VerifyStartupResponsivenessSmokeAsync(directory);
+            await VerifyDropdownAndLogThumbSmokeAsync(directory);
             await VerifyWorldRulesSmokeAsync(directory);
             await VerifyModWatchingSmokeAsync(directory);
             Tabs.SelectedItem = ModManagerTab; UpdateLayout();

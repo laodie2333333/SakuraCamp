@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Net.Http;
 using System.Windows.Threading;
 using SakuraCamp.Core;
@@ -28,6 +28,8 @@ public partial class MainWindow
         var directory = Path.Combine(store.Root, "logs");
         Directory.CreateDirectory(directory);
         tunnelLogPath = Path.Combine(directory, $"tunnels-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.log");
+        StartTunnelFile(tunnelLogPath);
+        tunnelLogsDirty = false;
         TunnelLogHint.Text = "通道控制与核验日志保存在本机：" + tunnelLogPath;
     }
 
@@ -35,12 +37,8 @@ public partial class MainWindow
     {
         tunnelLines.Enqueue(line);
         while (tunnelLines.Count > 200) tunnelLines.Dequeue();
-        TunnelLogBox.Text = string.Join(Environment.NewLine, tunnelLines);
-        TunnelLogBox.ScrollToEnd();
-        if (tunnelLogPath is null) return;
-        try { File.AppendAllText(tunnelLogPath, line + Environment.NewLine); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { TunnelLogHint.Text = "通道日志无法写入文件，当前窗口仍保留输出。"; }
+        tunnelLogsDirty = true;
+        tunnelFileQueue?.Writer.TryWrite(line);
     }
 
     private void ShowTunnelHealth(string text, bool logChange = false)

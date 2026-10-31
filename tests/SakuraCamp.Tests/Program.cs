@@ -26,6 +26,15 @@ var redacted = LogReader.Redact("token = aaa\npds-g^example-secret\npassword = a
 Check(!redacted.Contains("aaa") && !redacted.Contains("example-secret") && !redacted.Contains("real-secret"), "redact credentials from logs");
 Check(LogReader.Diagnose("E_MODS_DOWNLOAD_ERROR workshop-123").Any(s => s.Contains("客户端下载")), "identify client mod download failure");
 
+var pendingLogTest = new PendingLogs(3);
+for (var i = 0; i < 10; i++) pendingLogTest.Add(i.ToString());
+var recentLogs = pendingLogTest.Take(2, out var skippedLogs);
+Check(skippedLogs == 7 && recentLogs.SequenceEqual(new[] { "7", "8" }), "log backlog is bounded and keeps recent messages in order");
+Check(pendingLogTest.Take(10, out var nextSkipped).SequenceEqual(new[] { "9" }) && nextSkipped == 0, "partial log drain neither duplicates nor recounts omitted output");
+pendingLogTest.Add(new string('x', 100000));
+Check(pendingLogTest.Take(1, out _).Single().Length < 8300, "single log display entry cannot grow without bound");
+Parallel.For(0, 1000, i => pendingLogTest.Add(i.ToString()));
+Check(pendingLogTest.Take(2000, out var concurrentSkipped).Length == 3 && concurrentSkipped == 997, "concurrent output cannot exceed log queue capacity");
 var root = Path.Combine(workspace, "Klei", "DoNotStarveTogether");
 var cluster = Path.Combine(root, "123456", "Cluster_5"); Directory.CreateDirectory(cluster);
 File.WriteAllText(Path.Combine(cluster, "cluster.ini"), "[NETWORK]\r\ncluster_name = 测试世界\r\ncluster_password = test123\r\noffline_cluster = false\r\n[GAMEPLAY]\r\nmax_players = 6\r\n[SHARD]\r\nshard_enabled = true\r\n");

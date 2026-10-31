@@ -9,9 +9,20 @@ public sealed record WorldRuleSnapshot(string WorldPath, IReadOnlyList<RuleFile>
 
 public static class WorldRules
 {
+    // The game's persistent-string writer prefixes uncompressed text with this
+    // fixed 11-byte header. Other versions may be compressed: never guess.
+    private const string KleiTextHeader = "KLEI     1 ";
+    private static string Decode(byte[]? bytes)
+    {
+        var text = bytes is null ? "return {}" : Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
+        if (!text.StartsWith("KLEI", StringComparison.Ordinal)) return text;
+        if (!text.StartsWith(KleiTextHeader, StringComparison.Ordinal))
+            throw new InvalidOperationException("此规则文件使用尚不支持的 KLEI 封装格式，原文件已保留。");
+        return text[KleiTextHeader.Length..];
+    }
     private static Table Parse(byte[]? bytes)
     {
-        var (_, value) = ModLua.Read(bytes is null ? "return {}" : Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF'));
+        var (_, value) = ModLua.Read(Decode(bytes));
         if (value.Type != DataType.Table) throw new InvalidOperationException("世界规则文件必须返回设置表，原文件已保留。");
         var overrides = value.Table.Get("overrides");
         if (!overrides.IsNil() && overrides.Type != DataType.Table) throw new InvalidOperationException("世界规则 overrides 格式无效，原文件已保留。");
@@ -30,7 +41,12 @@ public static class WorldRules
                 var bytes = File.Exists(path) ? File.ReadAllBytes(path) : null;
                 files.Add(new(shard, path, bytes));
                 if (bytes is null) continue;
-                var table = Parse(bytes);
+                Table table;
+                try { table = Parse(bytes); }
+                catch (InvalidOperationException ex)
+                {
+                    throw new InvalidOperationException($"{shard}/{name} 读取失败：{ex.Message.Replace("无法读取 Mod 的 Lua 配置：", "Lua 格式错误：", StringComparison.Ordinal)}", ex);
+                }
                 if (name == "worldgenoverride.lua")
                 {
                     if (!table.Get("override_enabled").CastToBool()) continue;
@@ -78,7 +94,8 @@ public static class WorldRules
             table.Set("overrides", DynValue.NewTable(options));
             table.Set("override_enabled", DynValue.NewBoolean(true));
             // No preset is added: partial overrides layer on the game's existing level data.
-            edits.Add((file, "return " + ModLua.Value(DynValue.NewTable(table)).Code + "\n"));
+            var prefix = file.Original is null ? "" : Encoding.UTF8.GetString(file.Original).TrimStart('\uFEFF').StartsWith(KleiTextHeader, StringComparison.Ordinal) ? KleiTextHeader : "";
+            edits.Add((file, prefix + "return " + ModLua.Value(DynValue.NewTable(table)).Code + "\n"));
         }
         CheckCurrent(snapshot);
         var backup = Path.Combine(backupRoot, "world-rules", world.Folder + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]);

@@ -39,6 +39,27 @@ static class WorldRuleChecks
         check(Reject(() => WorldRules.Apply(world, current, catalog, Changes("Caves", "weather", choices[1].Value), root)), "disabled preset cannot be activated by changing one world rule");
         File.WriteAllText(caveOverride, "return {override_enabled=true,overrides=1}");
         check(Reject(() => WorldRules.Read(world)), "malformed rule overrides fail without changing files");
+        var kleiBytes = System.Text.Encoding.UTF8.GetBytes("KLEI     1 " + existing);
+        File.WriteAllBytes(caveOverride, kleiBytes); current = WorldRules.Read(world);
+        check(current.Shards[1].Values["weather"] == choices[0].Value && current.Shards[1].Values["unlisted"].Code == "\"keep\"", "KLEI uncompressed world rules read without treating header as Lua");
+        var kleiBackup = WorldRules.Apply(world, current, catalog, Changes("Caves", "weather", choices[1].Value), Path.Combine(root, "backups"));
+        check(File.ReadAllText(caveOverride).StartsWith("KLEI     1 return ") && WorldRules.Read(world).Shards[1].Values["weather"] == choices[1].Value,
+            "saving KLEI rule overrides preserves envelope and reads back edits");
+        check(File.ReadAllBytes(Path.Combine(kleiBackup, "Caves", "worldgenoverride.lua")).SequenceEqual(kleiBytes) && File.ReadAllText(caveOverride).Contains("[\"world_size\"]=\"small\""),
+            "KLEI rule backup preserves exact source bytes and unknown map settings");
+        File.WriteAllText(caveOverride, "return {}");
+        File.WriteAllText(master, "KLEI     1 " + level); current = WorldRules.Read(world);
+        check(current.Shards[0].Values["weather"] == choices[1].Value, "KLEI full level definition layers correctly with plain partial overrides");
+        File.WriteAllText(master, level);
+        File.WriteAllText(caveOverride, "\uFEFFKLEI     1 " + existing);
+        check(WorldRules.Read(world).Shards[1].Values["weather"] == choices[0].Value, "BOM before KLEI text header is supported");
+        foreach (var invalid in new[] { "KLEI     2 return {}", "KLEI", "KLEI     1 broken lua" })
+        {
+            File.WriteAllText(caveOverride, invalid);
+            check(Reject(() => WorldRules.Read(world)) && File.ReadAllText(caveOverride) == invalid, "invalid or unsupported KLEI world rules rejected without writes");
+        }
+        try { WorldRules.Read(world); }
+        catch (InvalidOperationException ex) { check(ex.Message.Contains("Caves/worldgenoverride.lua") && !ex.Message.Contains("Mod 的"), "world rule error identifies shard and file instead of mislabelling Mod config"); }
         var po = "msgctxt \"STRINGS.UI.SANDBOXMENU.TEST\"\nmsgid \"English\"\nmsgstr \"中文\"\n\"续行\"\n\n";
         check(WorldRuleCatalog.ParseTranslations(po)["STRINGS.UI.SANDBOXMENU.TEST"] == "中文续行", "game rule translations support multiline strings");
         check(Reject(() => WorldRuleCatalog.Parse("return {}", new Dictionary<string,string>())), "changed game rule schema fails closed");

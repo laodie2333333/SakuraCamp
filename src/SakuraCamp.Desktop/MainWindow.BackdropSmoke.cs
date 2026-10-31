@@ -39,11 +39,11 @@ public partial class MainWindow
         elapsed.Stop();
         if (!ReferenceEquals(originalBackground, WindowSurface.Background) || (backdropEnabled && WindowSurface.Background is not SolidColorBrush { Color.A: < 200 }))
             throw new InvalidOperationException("Moving the window replaced its translucent background");
-        uint first = 0, second = 0; var difference = 0; var rawStripeContrast = 0; var blurredStripeContrast = 0;
+        uint first = 0, second = 0; var difference = 0; var rawStripeContrast = 0; var blurredStripeContrast = 0; var screenOccluded = false;
         if (backdropEnabled)
         {
             var wasTopmost = Topmost;
-            var behind = new Window { Topmost = true, WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+            var behind = new Window { Topmost = false, WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
                 ShowActivated = false, Left = Left, Top = Top, Width = ActualWidth, Height = ActualHeight, Background = new SolidColorBrush(Color.FromRgb(20, 190, 210)) };
             try
             {
@@ -56,9 +56,11 @@ public partial class MainWindow
                     try { return SmokeGetPixel(dc, (int)point.X, (int)point.Y); }
                     finally { SmokeReleaseDC(IntPtr.Zero, dc); }
                 }
+                EnsureSmokeScreenVisible(handle, point);
                 first = Sample();
                 SaveComposedSmokeScreenshot(Path.Combine(directory, "backdrop-teal.png"));
                 behind.Background = new SolidColorBrush(Color.FromRgb(220, 50, 170)); await Task.Delay(500);
+                EnsureSmokeScreenVisible(handle, point);
                 second = Sample();
                 SaveComposedSmokeScreenshot(Path.Combine(directory, "backdrop-magenta.png"));
                 difference = Enumerable.Range(0, 3).Sum(i => Math.Abs((int)(first >> (i * 8) & 255) - (int)(second >> (i * 8) & 255)));
@@ -78,18 +80,30 @@ public partial class MainWindow
                     }
                     finally { SmokeReleaseDC(IntPtr.Zero, dc); }
                 }
-                SmokeShowWindow(handle, 0); await Task.Delay(250); rawStripeContrast = StripeContrast();
-                SmokeShowWindow(handle, 5); SmokeSetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0, 0x0013); Activate(); await Task.Delay(500); blurredStripeContrast = StripeContrast();
+                SmokeShowWindow(handle, 0);
+                SmokeSetWindowPos(new WindowInteropHelper(behind).Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0013); behind.Activate();
+                await Task.Delay(350); EnsureSmokeScreenVisible(new WindowInteropHelper(behind).Handle, point); rawStripeContrast = StripeContrast();
+                SmokeShowWindow(handle, 5); SmokeSetWindowPos(handle, new IntPtr(-1), 0, 0, 0, 0, 0x0013); Activate(); await Task.Delay(500); EnsureSmokeScreenVisible(handle, point); blurredStripeContrast = StripeContrast();
                 SaveComposedSmokeScreenshot(Path.Combine(directory, "backdrop-blur.png"));
                 if (rawStripeContrast < 600 || blurredStripeContrast > rawStripeContrast / 10)
                     throw new InvalidOperationException($"Background pattern was not blurred: {rawStripeContrast}/{blurredStripeContrast}");
             }
+            catch (SmokeScreenOccludedException) { screenOccluded = true; }
             finally { SmokeSendMessage(handle, 0x0232, IntPtr.Zero, IntPtr.Zero); behind.Close(); Topmost = wasTopmost; }
         }
         File.WriteAllText(Path.Combine(directory, "backdrop-report.json"), System.Text.Json.JsonSerializer.Serialize(new
         { LegacyBlur = legacyBackdrop, SystemBackdrop = backdropEnabled, BlurMaintainedDuringMoveAndResize = true, TintUnchanged = true,
-            NativeMoveCount = 30, NativeResizeCount = 30, MoveMilliseconds = elapsed.ElapsedMilliseconds, BackgroundPixelA = first, BackgroundPixelB = second, BackgroundColorDifference = difference, RawStripeContrast = rawStripeContrast, BlurredStripeContrast = blurredStripeContrast }));
+            NativeMoveCount = 30, NativeResizeCount = 30, MoveMilliseconds = elapsed.ElapsedMilliseconds, BackgroundPixelA = first, BackgroundPixelB = second, BackgroundColorDifference = difference, RawStripeContrast = rawStripeContrast, BlurredStripeContrast = blurredStripeContrast, ScreenOccluded = screenOccluded }));
     }
+    private sealed class SmokeScreenOccludedException : Exception;
+    private static void EnsureSmokeScreenVisible(IntPtr handle, Point point)
+    {
+        var screenWindow = SmokeWindowFromPoint(new SmokePoint { X = (int)point.X, Y = (int)point.Y });
+        if (SmokeGetAncestor(screenWindow, 2) != handle) throw new SmokeScreenOccludedException();
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct SmokePoint { public int X; public int Y; }
+    [DllImport("user32.dll", EntryPoint = "WindowFromPoint")] private static extern IntPtr SmokeWindowFromPoint(SmokePoint point);
+    [DllImport("user32.dll", EntryPoint = "GetAncestor")] private static extern IntPtr SmokeGetAncestor(IntPtr handle, int flags);
     private void SaveComposedSmokeScreenshot(string path)
     {
         var origin = PointToScreen(new Point()); var end = PointToScreen(new Point(ActualWidth, ActualHeight));

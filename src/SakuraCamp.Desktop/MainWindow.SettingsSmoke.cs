@@ -62,7 +62,7 @@ public partial class MainWindow
             SaveSmokeScreenshot(Path.Combine(directory, "saved-connection-fields.png"));
             var tab = Tabs.SelectedItem; var errorFile = Path.Combine(directory, "error.txt");
             ShowError(new InvalidOperationException("Expected offline settings error"));
-            if (Tabs.SelectedItem != tab || !LogBox.Text.Contains("Expected offline settings error")) throw new InvalidOperationException("Error changed selected page or lost diagnostic logging");
+            if (Tabs.SelectedItem != tab || !logLines.Any(line => line.Contains("Expected offline settings error"))) throw new InvalidOperationException("Error changed selected page or lost diagnostic logging");
             File.Delete(errorFile);
             File.WriteAllText(Path.Combine(directory, "saved-settings-report.json"), "{\"savedTokenPopulated\":true,\"savedNodePopulated\":true,\"legacyNodeVisible\":true,\"nodeNameRoundTrip\":true,\"optionalPassword\":true,\"errorKeepsPage\":true}");
         }

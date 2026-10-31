@@ -213,7 +213,7 @@
                                                       SnapsToDevicePixels="True"
                                                       HorizontalScrollBarVisibility="Auto"
                                                       VerticalScrollBarVisibility="Auto"
-                                                      CanContentScroll="True">
+                                                      CanContentScroll="False">
                                             <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
                                         </ScrollViewer>
                                     </Border>
@@ -354,7 +354,7 @@
                     <Button x:Name="MaximizeCaption" Style="{StaticResource CaptionButton}" Click="MaximizeCaption_Click" AutomationProperties.Name="最大化"><TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/></Button>
                     <Button x:Name="CloseCaption" Style="{StaticResource CloseCaptionButton}" Click="CloseCaption_Click" AutomationProperties.Name="关闭"><TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/></Button>
                 </StackPanel>
-                <TextBlock Text="Windows 本地开服  ·  预览版 0.2.8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
+                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
             </Grid>
         </Border>
         <Grid x:Name="WorkspaceSurface" Grid.Row="1" Margin="28,24,28,14">
@@ -454,7 +454,7 @@
                             <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,10,0,0"><Button Content="保存联机设置" Background="#F5A962" Foreground="#1E2330" Click="SaveConnection_Click"/><Button Content="获取科雷令牌 ↗" Click="Klei_Click"/><Button x:Name="RetryNodeChange" Content="继续配置节点" Visibility="Collapsed" Click="RetryNodeChange_Click"/><Button x:Name="RecoveryButton" Visibility="Collapsed" Content="恢复未完成的隧道配置" Click="RecoverCreation_Click"/></WrapPanel>
                         </Grid>
                         <Border Background="#2A3041" CornerRadius="8" Padding="14" Margin="0,16,0,0"><StackPanel>
-                            <WrapPanel><Button Content="复制朋友连接命令" Click="CopyFriend_Click"/><Button Content="复制房主连接命令" Click="CopyHost_Click"/><Button Content="打开樱花面板 ↗" Click="SakuraPanel_Click"/></WrapPanel>
+                            <WrapPanel><Button x:Name="CopyFriendButton" Content="复制朋友连接命令" Click="CopyFriend_Click"/><Button x:Name="CopyHostButton" Content="复制房主连接命令" Click="CopyHost_Click"/><Button Content="打开樱花面板 ↗" Click="SakuraPanel_Click"/></WrapPanel>
                             <TextBlock Text="开服后，在游戏主菜单按 ~ 粘贴连接命令。命令包含世界密码，请只分享给朋友。" Style="{StaticResource Hint}" FontSize="11" Margin="0,8,0,0"/>
                         </StackPanel></Border>
                         <StackPanel Visibility="Collapsed">
@@ -592,7 +592,7 @@
                     <TabItem x:Name="DiagnosticsTab" Header="日志与诊断"><Grid>
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                         <WrapPanel Margin="0,0,0,12"><Button Content="导入朋友的 client_log.txt" Click="ImportLog_Click"/><Button Content="导出脱敏日志" Click="ExportLog_Click"/><Button Content="清空显示" Click="ClearLog_Click"/></WrapPanel>
-                        <Expander Grid.Row="1" Header="樱花通道日志" IsExpanded="True" Foreground="#F5A962" Margin="0,0,0,10">
+                        <Expander x:Name="TunnelLogExpander" Grid.Row="1" Header="樱花通道日志" IsExpanded="True" Foreground="#F5A962" Margin="0,0,0,10">
                             <StackPanel><TextBlock x:Name="TunnelLogHint" Text="在此查看通道开关操作、运行结果与官方在线核验记录。" Style="{StaticResource Hint}" FontSize="11" Margin="0,5,0,5"/>
                             <TextBox x:Name="TunnelLogBox" Height="140" VerticalContentAlignment="Top" Background="#252A38" Foreground="#C8CACD" FontFamily="Cascadia Mono,Consolas" FontSize="11" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0"/>
                             </StackPanel>
