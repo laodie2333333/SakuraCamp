@@ -17,7 +17,7 @@ public partial class MainWindow
     private bool modPolling;
     private bool modWatchClosed;
     private DateTimeOffset modRetryAt = DateTimeOffset.MaxValue;
-    private ModSettingsWindow? activeModSettings;
+    private ModSettingsPanel? activeModSettings;
 
     private void InitializeModWatching()
     {
@@ -60,15 +60,14 @@ public partial class MainWindow
         finally { modPolling = false; }
     }
 
-    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ModOverlayContent_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (e.Source != Tabs || WorldSidebar is null || OverviewTab is null) return;
-        var overview = Tabs.SelectedItem == OverviewTab;
-        WorldSidebar.Visibility = overview ? Visibility.Visible : Visibility.Collapsed;
-        WorldSidebarColumn.Width = new GridLength(overview ? 270 : 0);
+        // Border.CornerRadius only rounds the border itself. Clip the child background as well.
+        if (sender is FrameworkElement content)
+            content.Clip = new RectangleGeometry(new Rect(0, 0, content.ActualWidth, content.ActualHeight), 15, 15);
     }
 
-    private async Task ShowModSettingsAsync(ModSettingsWindow editor)
+    private async Task ShowModSettingsAsync(ModSettingsPanel editor)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var previousFocus = Keyboard.FocusedElement;

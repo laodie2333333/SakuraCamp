@@ -113,14 +113,22 @@ public partial class MainWindow : Window
         previous.MasterAddress = MasterAddress.Text.Trim(); previous.CavesAddress = CavesAddress.Text.Trim();
         previous.MasterTunnelId = (MasterTunnel.SelectedItem as TunnelInfo)?.Id ?? previous.MasterTunnelId;
         previous.CavesTunnelId = (CavesTunnel.SelectedItem as TunnelInfo)?.Id ?? previous.CavesTunnelId;
+        if (MasterTunnel.SelectedItem is TunnelInfo master) RememberWorldNode(previous, master);
         settings.Profiles[world.Path] = previous;
         Persist();
     }
-    private WorldInfo RequireWorld() => CurrentWorld ?? throw new InvalidOperationException("请先在左侧选择一个世界。");
+    private WorldInfo RequireWorld() => CurrentWorld ?? throw new InvalidOperationException("请先返回“世界总览”选择一个世界。");
     private void RequireIdle() { if (session.HasProcesses) throw new InvalidOperationException("请先保存关服，再更改世界或设置。"); WorldFiles.RequireStopped(); }
     private async void WorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!initialized || CurrentWorld is null) return;
+        if (!initialized) return;
+        if (CurrentWorld is null)
+        {
+            ++modScanGeneration; modSnapshot = null; installedMods = []; modCards = []; mods = [];
+            KleiToken.Clear(); WorldPassword.Clear(); CreationNode.SelectedIndex = -1;
+            ModHeading.Text = "服务器 Mod"; ModManagerHint.Text = "请先在世界总览选择一个世界。";
+            ApplyModFilter(); UpdateControls(); return;
+        }
         try
         {
             var world = CurrentWorld; WorldTitle.Text = world.Name; WorldSubtitle.Text = world.Detail + " · " + world.Mode; CavesStatus.Text = world.HasCaves ? "未启动" : "未启用洞穴"; CavesAddress.IsEnabled = world.HasCaves; CavesTunnel.IsEnabled = world.HasCaves;
@@ -128,11 +136,11 @@ public partial class MainWindow : Window
             MasterTunnel.SelectedValue = profile?.MasterTunnelId;
             CavesTunnel.SelectedValue = world.HasCaves ? profile?.CavesTunnelId : null;
             CreationScope.SelectedIndex = profile?.PublicServer == true ? 1 : 0;
-            CreationNode.SelectedValue = profile?.CreationNodeId;
+            RestoreWorldNode(profile);
             RecoveryButton.Visibility = profile?.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateTunnelFields();
             ResetLiveStatus();
-            WorldPassword.Password = WorldFiles.Password(world); KleiToken.Clear(); TokenHint.Text = world.HasToken ? "本地已有 Klei 令牌；开服前会验证格式。" : "当前世界缺少 Klei 服务器令牌。";
+            LoadWorldCredentials(world);
             modRefreshTask = RefreshModManagerAsync(world);
             await modRefreshTask;
             if (CurrentWorld?.Path != world.Path) return;
@@ -158,9 +166,9 @@ public partial class MainWindow : Window
     private LaunchPlan BuildPlan()
     {
         var world = RequireWorld();
-        var master = MasterTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("请先读取并选择地上隧道；一键开服会自动恢复已保存的选择。");
-        var caves = world.HasCaves ? CavesTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("请选择洞穴隧道。") : null;
-        if (caves is not null && (caves.Node != master.Node || caves.Id == master.Id)) throw new InvalidOperationException("请选择同一节点的两条不同隧道。");
+        var master = MasterTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("地上隧道尚未配置完成，请在联机设置中选择节点并保存。");
+        var caves = world.HasCaves ? CavesTunnel.SelectedItem as TunnelInfo ?? throw new InvalidOperationException("洞穴隧道尚未配置完成，请重新保存联机设置。") : null;
+        if (caves is not null && (caves.Node != master.Node || caves.Id == master.Id)) throw new InvalidOperationException("地上与洞穴隧道不在同一节点或编号重复，请检查樱花面板中的当前世界隧道。");
         UpdateTunnelFields();
         return new(world, ServerPath.Text.Trim(), WorkshopPath.Text.Trim(), master.GetEndpoint(), caves?.GetEndpoint());
     }
@@ -189,6 +197,8 @@ public partial class MainWindow : Window
         }
         MasterTunnel.SelectedValue = Restore("Master", masterId, profile.MasterAddress)?.Id;
         CavesTunnel.SelectedValue = world.HasCaves ? Restore("Caves", cavesId, profile.CavesAddress)?.Id : null;
+        if (MasterTunnel.SelectedItem is TunnelInfo restoredMaster && CreationNode.SelectedItem is null)
+            RestoreWorldNode(profile, restoredMaster.Node, restoredMaster.NodeHost);
         if (requireSelection)
         {
             var pair = SakuraClient.SelectWorldTunnels(udp, profile, world.HasCaves, masterId, cavesId);
@@ -218,8 +228,9 @@ public partial class MainWindow : Window
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         creationNodes = await new SakuraClient(http).NodesAsync(SakuraToken.Password.Trim());
         var available = creationNodes.Where(n => n.IsAvailable(publicServer)).OrderBy(n => n.Vip).ThenBy(n => n.Id).ToArray();
-        CreationNode.ItemsSource = available;
-        if (CurrentWorld is { } world && settings.Profiles.TryGetValue(world.Path, out var profile)) CreationNode.SelectedValue = profile.CreationNodeId ?? (MasterTunnel.SelectedItem as TunnelInfo)?.Node;
+        var selectedId = (CreationNode.SelectedItem as NodeInfo)?.Id;
+        settings.Profiles.TryGetValue(RequireWorld().Path, out var profile);
+        RestoreWorldNode(profile, selectedId ?? profile?.CreationNodeId ?? (MasterTunnel.SelectedItem as TunnelInfo)?.Node);
         StatusText.Text = available.Length > 0 ? $"找到 {available.Length} 个可创建 UDP 的节点。请选择地区和账号权限合适的节点。" : "当前没有符合用途的可用节点。请检查账号权限或稍候重试。";
     }
     private async void CreateTunnels_Click(object sender, RoutedEventArgs e) => await Guard(CreateTunnelsAsync);
@@ -227,13 +238,14 @@ public partial class MainWindow : Window
     {
         RequireIdle(); var world = RequireWorld(); var publicServer = CreationIsPublic();
         var node = CreationNode.SelectedItem as NodeInfo ?? throw new InvalidOperationException("请先读取可用节点并选择一个节点。");
+        if (!node.IsAvailable(publicServer)) throw new InvalidOperationException("请先点击读取节点，确认已保存节点当前可用后再创建隧道。");
         var token = SakuraToken.Password.Trim();
         if (string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException("请先填写樱花访问密钥。");
         if (!settings.Profiles.TryGetValue(world.Path, out var profile)) settings.Profiles[world.Path] = profile = new();
         if (profile.CreationNodeId is not null && profile.CreationNodeId != node.Id)
-            throw new InvalidOperationException($"此世界记录的创建节点为 {profile.CreationNodeId}。若上次没有创建成功，请先点“检查并恢复创建”，再选择节点重试；已有隧道请选回原节点继续。");
+            throw new InvalidOperationException($"此世界记录的创建节点为 {profile.CreationNodeId}。若上次没有创建成功，请先点“恢复未完成的隧道配置”，再选择节点重试；已有隧道请选回原节点继续。");
         if (profile.CreationKey.Length == 0) profile.CreationKey = Guid.NewGuid().ToString("N");
-        profile.CreationNodeId = node.Id; profile.PublicServer = publicServer;
+        profile.CreationNodeId = node.Id; profile.SavedNode = node; profile.PublicServer = publicServer;
         Persist(); // Persist ownership and pending requests before any remote mutation.
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         var api = new SakuraClient(http);
@@ -267,8 +279,9 @@ public partial class MainWindow : Window
             recovery = await api.RecoverCreationAsync(token, profile, true, Persist);
         }
         var text = recovery.NodeUnlocked
-            ? "未找到此世界对应的隧道，已解除待确认状态和节点限制。可选择节点，再点创建隧道。"
+            ? "未找到此世界对应的隧道，已解除待确认状态和节点限制。可选择节点，再点保存联机设置。"
             : $"找到 {recovery.FoundCount} 条相关隧道，已解除待确认状态。请选回节点 {profile.CreationNodeId}，再点保存联机设置继续配置。";
+        RecoveryButton.Visibility = profile.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         StatusText.Text = text; AppendLog(text);
     });
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(StartWorldAndTunnelsAsync);
@@ -276,7 +289,7 @@ public partial class MainWindow : Window
     {
         RequireIdle();
         if (string.IsNullOrWhiteSpace(SakuraToken.Password))
-            throw new InvalidOperationException("一键开服会自动启动樱花通道，请在联机设置中填写樱花访问密钥，可勾选在本机加密记住密钥。不会在通道未启动时单独启动世界。");
+            throw new InvalidOperationException("一键开服会自动启动樱花通道，请在联机设置中填写樱花访问密钥，保存后会在本机加密记住密钥。不会在通道未启动时单独启动世界。");
         StatusText.Text = "正在恢复当前世界的隧道方案…";
         await EnsureConnectionTunnelsAsync();
         var plan = BuildPlan(); plan.Validate(); SaveProfile();
@@ -363,7 +376,7 @@ public partial class MainWindow : Window
     private async void CopyHost_Click(object sender, RoutedEventArgs e) => await CopyConnect(true);
     private Task CopyConnect(bool local) => Guard(() => { var world = RequireWorld(); var ep = Endpoint.Parse(MasterAddress.Text); Clipboard.SetText(WorldFiles.Connect(local ? "127.0.0.1" : ep.Host, ep.Port, WorldFiles.Password(world))); StatusText.Text = "已复制连接命令（包含密码）。"; return Task.CompletedTask; });
     private async void CopyMods_Click(object sender, RoutedEventArgs e) => await Guard(() => {
-        var snapshot = modSnapshot ?? throw new InvalidOperationException("请先刷新本机 Mod，确认世界配置可以读取。");
+        var snapshot = modSnapshot ?? throw new InvalidOperationException("本地 Mod 配置尚未就绪，请等待自动更新后重试。");
         WorldMods.CheckCurrent(snapshot);
         Clipboard.SetText(WorldMods.SyncList(installedMods, snapshot)); StatusText.Text = "已复制当前世界启用的 Mod 清单和工坊链接。"; return Task.CompletedTask;
     });
@@ -380,7 +393,7 @@ public partial class MainWindow : Window
         if (line.Contains("[樱花]", StringComparison.Ordinal) || line.Contains("[通道核验]", StringComparison.Ordinal) || line.StartsWith("一键开服：", StringComparison.Ordinal)) AppendTunnelLog(formatted);
     }
     private async Task Guard(Func<Task> action) { if (busy) return; busy = true; UpdateControls(); try { await action(); } catch (Exception ex) { ShowError(ex); } finally { busy = false; UpdateControls(); } }
-    private void ShowError(Exception ex) { var message = LogReader.Redact(ex.Message, SakuraToken.Password, KleiToken.Password, WorldPassword.Password); StatusText.Text = message; AppendLog("提示：" + message); if (App.SmokeDirectory is not null) { File.WriteAllText(Path.Combine(App.SmokeDirectory, "error.txt"), message); return; } Tabs.SelectedItem = DiagnosticsTab; MessageBox.Show(this, message, "樱火营地", MessageBoxButton.OK, MessageBoxImage.Information); }
+    private void ShowError(Exception ex) { var message = LogReader.Redact(ex.Message, SakuraToken.Password, KleiToken.Password, WorldPassword.Password); StatusText.Text = message; AppendLog("提示：" + message); if (App.SmokeDirectory is not null) { File.WriteAllText(Path.Combine(App.SmokeDirectory, "error.txt"), message); return; } MessageBox.Show(this, message, "樱火营地", MessageBoxButton.OK, MessageBoxImage.Information); }
     private void UpdateControls() { if (!initialized) return; var running = session.HasProcesses; WorldList.IsEnabled = !busy && !running; ConnectPanel.IsEnabled = !busy; SettingsPanel.IsEnabled = !busy && !running; StartButton.IsEnabled = !busy && !running && CurrentWorld is not null; StopButton.IsEnabled = !busy && running; ApiPanel.IsEnabled = !running; UpdateTunnelFields(); UpdateModEditing(); }
     private async void Window_Closing(object? sender, CancelEventArgs e) { if (busy) { e.Cancel = true; StatusText.Text = "正在执行操作，请稍后再关闭。"; return; } if (!session.HasProcesses) return; e.Cancel = true; if (MessageBox.Show(this, "服务器正在运行。保存并关闭后退出工具？", "保存关服", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { await Guard(async () => { if (await session.StopAsync()) _ = Dispatcher.BeginInvoke(Close); }); } }
     private void BrowseRoot_Click(object sender, RoutedEventArgs e) => PickFolder(RootPath, "选择 DoNotStarveTogether 存档目录");
@@ -489,15 +502,18 @@ public partial class MainWindow : Window
             ModFilter.SelectedIndex = 1;
             if (ModList.Items.Cast<ModCard>().Any(c => !c.Enabled)) throw new InvalidOperationException("Enabled Mod filter failed");
             ModFilter.SelectedIndex = 0;
-            var configDialog = new ModSettingsWindow(sampleMod.Mod, modSnapshot, (_, _) => throw new InvalidOperationException("Smoke must not write user Mod configs"));
+            var configDialog = new ModSettingsPanel(sampleMod.Mod, modSnapshot, (_, _) => throw new InvalidOperationException("Smoke must not write user Mod configs"));
             Tabs.SelectedItem = ModManagerTab;
             var configOverlayTask = ShowModSettingsAsync(configDialog); configDialog.CheckSmoke();
+            VerifyModTooltipSmoke(configDialog, false);
             if (Application.Current.Windows.Count != 1) throw new InvalidOperationException("Mod settings created another window");
             await Task.Delay(250); configDialog.UpdateLayout();
             var configBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)configDialog.ActualWidth, (int)configDialog.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
             configBitmap.Render(configDialog);
             var configEncoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); configEncoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(configBitmap));
             using (var configStream = File.Create(Path.Combine(directory, "mod-settings.png"))) configEncoder.Save(configStream);
+            if (ModOverlayContent.Clip is not System.Windows.Media.RectangleGeometry clip || clip.FillContains(new Point(1, 1)) || !clip.FillContains(new Point(20, 20))) throw new InvalidOperationException("Overlay content did not clip its square corners");
+            SaveSmokeScreenshot(Path.Combine(directory, "mod-overlay.png"));
             configDialog.Dismiss(); await configOverlayTask;
             // Exercise the actual settings Save button against an isolated world, never the selected user world.
             var fixtureWorldPath = Path.Combine(directory, "mod-save-fixture");
@@ -507,7 +523,7 @@ public partial class MainWindow : Window
             var fixtureWorld = Discovery.ReadWorld(fixtureWorldPath);
             var fixtureSnapshot = WorldMods.Read(fixtureWorld);
             var saveInvoked = false;
-            var saveDialog = new ModSettingsWindow(sampleMod.Mod, fixtureSnapshot, async (changes, shards) =>
+            var saveDialog = new ModSettingsPanel(sampleMod.Mod, fixtureSnapshot, async (changes, shards) =>
             {
                 if (changes.Count != 1 || shards.Length != 1 || shards[0] != "Master") throw new InvalidOperationException("Mod UI save produced unexpected edits");
                 await Task.Run(() => WorldMods.Apply(fixtureWorld, fixtureSnapshot, sampleMod.Mod, null, changes, shards, Path.Combine(directory, "mod-backup-fixture")));
@@ -518,27 +534,37 @@ public partial class MainWindow : Window
             var saveOverlayTask = ShowModSettingsAsync(saveDialog);
             await saveDialog.SaveSmokeAsync(); await saveOverlayTask;
             if (!saveInvoked) throw new InvalidOperationException("Mod UI save callback not invoked");
+            VerifySavedSettingsSmoke(directory);
+            await VerifyConnectionLayoutSmokeAsync(directory);
             await VerifyModWatchingSmokeAsync(directory);
             Tabs.SelectedItem = ModManagerTab; UpdateLayout();
+            VerifyModTooltipSmoke(ModList, true);
             var gearButtons = VisualChildren<Button>(ModList).Where(b => b.ToolTip as string == "配置 Mod").ToArray();
-            if (gearButtons.Length == 0 || gearButtons.Any(b => ToolTipService.GetInitialShowDelay(b) != 500 || ToolTipService.GetBetweenShowDelay(b) != 0)) throw new InvalidOperationException("Gear tooltip delay regression");
+            if (gearButtons.Length == 0 || gearButtons.Any(b => ToolTipService.GetInitialShowDelay(b) != 300 || ToolTipService.GetBetweenShowDelay(b) != 0)) throw new InvalidOperationException("Gear tooltip delay regression");
             if (MasterTunnel.IsVisible || CavesTunnel.IsVisible || MasterAddress.IsVisible || CavesAddress.IsVisible) throw new InvalidOperationException("Automatic tunnel fields still visible");
             for (var index = 0; index < Tabs.Items.Count; index++)
             {
                 Tabs.SelectedIndex = index; await Task.Delay(250); UpdateLayout();
-                if ((WorldSidebar.Visibility == Visibility.Visible) != (Tabs.SelectedItem == OverviewTab)) throw new InvalidOperationException("Unrelated world sidebar is visible");
-                if ((StartButton.IsVisible || MasterStatus.IsVisible) && Tabs.SelectedItem != OverviewTab) throw new InvalidOperationException("World overview leaked into a function page");
+                var tabOrigin = Tabs.TranslatePoint(new Point(), this);
+                if (Math.Abs(tabOrigin.X - 28) > 1 || Math.Abs(tabOrigin.Y - 109) > 1) throw new InvalidOperationException("Navigation moved between pages");
+                if ((StartButton.IsVisible || MasterStatus.IsVisible) && Tabs.SelectedItem != ConnectionTab) throw new InvalidOperationException("Connection controls leaked into a function page");
                 if (Tabs.SelectedItem == LiveTab) { FindVisualParent<ScrollViewer>(LivePlayers)?.ScrollToBottom(); await Task.Delay(100); UpdateLayout(); }
                 var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
                 bitmap.Render(this);
                 var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
                 using var stream = File.Create(Path.Combine(directory, $"tab-{index}.png")); encoder.Save(stream);
             }
+            Width = MinWidth; Height = MinHeight;
+            foreach (var tab in new[] { OverviewTab, (TabItem)Tabs.Items[1], ModManagerTab })
+            {
+                Tabs.SelectedItem = tab; await Task.Delay(150); UpdateLayout();
+                SaveSmokeScreenshot(Path.Combine(directory, $"minimum-{Tabs.SelectedIndex}.png"));
+            }
             var testSecretPath = Path.Combine(directory, "test-secret.dpapi");
             SecretStore.Save(testSecretPath, "smoke-test-secret");
             if (SecretStore.Load(testSecretPath) != "smoke-test-secret") throw new InvalidOperationException("DPAPI round-trip failed");
             File.Delete(testSecretPath);
-            var report = new { Worlds = WorldList.Items.Count, Selected = CurrentWorld?.Folder, Mods = mods.Count, ServerFound = File.Exists(ServerPath.Text), FrpcFound = File.Exists(FrpcPath.Text), Tabs = Tabs.Items.Count, Dpapi = true, AutomaticAddressVerified = automaticAddressVerified, CreationNodeFilterVerified = true, OneClickAlwaysStartsTunnels = true, LegacyManualProfileVerified = true, LiveStatusVerified = true, OneSecondUpdates = true, RefreshButtonRemoved = true, PersistentTunnelLogVerified = true, PlayerCardsVerified = true, PortraitsLoaded = characterAvatars.Count, ServerModCards = modCards.Count, ModImages = modCards.Count(c => c.Image is not null), ClientModsExcluded = true, ModConfigurationVerified = true, ModSearchAndFiltersVerified = true, ModSaveButtonVerified = saveInvoked, IntegratedModOverlay = true, IsolatedFunctionPages = true, GearTooltipDelayMs = 500, AutomaticModDetectionVerified = true };
+            var report = new { Worlds = WorldList.Items.Count, Selected = CurrentWorld?.Folder, Mods = mods.Count, ServerFound = File.Exists(ServerPath.Text), FrpcFound = File.Exists(FrpcPath.Text), Tabs = Tabs.Items.Count, Dpapi = true, AutomaticAddressVerified = automaticAddressVerified, CreationNodeFilterVerified = true, OneClickAlwaysStartsTunnels = true, LegacyManualProfileVerified = true, LiveStatusVerified = true, OneSecondUpdates = true, RefreshButtonRemoved = true, PersistentTunnelLogVerified = true, PlayerCardsVerified = true, PortraitsLoaded = characterAvatars.Count, ServerModCards = modCards.Count, ModImages = modCards.Count(c => c.Image is not null), ClientModsExcluded = true, ModConfigurationVerified = true, ModSearchAndFiltersVerified = true, ModSaveButtonVerified = saveInvoked, IntegratedModOverlay = true, IsolatedFunctionPages = true, GearTooltipDelayMs = 300, AutomaticModDetectionVerified = true, FixedNavigation = true, WorldCardSelection = true, MaskedInputsVisible = true, LongInputLayoutStable = true, RoundedOverlayContent = true, OnlyGearModTooltip = true, WorkshopIdHidden = true, SavedConnectionFieldsVerified = true, ErrorKeepsPage = true };
             File.WriteAllText(Path.Combine(directory, "report.json"), System.Text.Json.JsonSerializer.Serialize(report));
             Application.Current.Shutdown(File.Exists(Path.Combine(directory, "error.txt")) ? 1 : 0);
         }

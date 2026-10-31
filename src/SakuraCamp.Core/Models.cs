@@ -104,6 +104,7 @@ public sealed class WorldProfile
     public int? CavesTunnelId { get; set; }
     public string CreationKey { get; set; } = "";
     public int? CreationNodeId { get; set; }
+    public NodeInfo? SavedNode { get; set; }
     public bool PublicServer { get; set; }
     public HashSet<string> PendingTunnelShards { get; set; } = [];
 }
@@ -113,7 +114,8 @@ public sealed record NodeInfo(int Id, string Name, string Host, int Vip, int Fla
     public bool CanCreate => (Flag & 4) != 0 && (Flag & 32) != 0 && (Flag & 512) == 0;
     public bool AllowsPublicGame => (Flag & 2048) != 0 || Name.Contains("多线", StringComparison.Ordinal);
     public bool IsAvailable(bool publicServer) => CanCreate && (!publicServer || AllowsPublicGame);
-    public string Label => $"{Name} · {(Vip == 0 ? "普通账号" : $"需 VIP {Vip}")} · {Host}";
+    public string Label => Flag == 0 ? Name + (Host.Length > 0 ? " · " + Host : "")
+        : $"{Name} · {(Vip == 0 ? "普通账号" : $"需 VIP {Vip}")} · {Host}";
 }
 
 public sealed record TunnelPair(TunnelInfo Master, TunnelInfo? Caves);

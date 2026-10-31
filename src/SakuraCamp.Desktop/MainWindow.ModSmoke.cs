@@ -8,6 +8,14 @@ namespace SakuraCamp.Desktop;
 
 public partial class MainWindow
 {
+    private void SaveSmokeScreenshot(string path)
+    {
+        UpdateLayout();
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(this);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var stream = File.Create(path); encoder.Save(stream);
+    }
     private async Task VerifyModWatchingSmokeAsync(string directory)
     {
         var oldWorlds = WorldList.Items.Cast<WorldInfo>().ToArray(); var oldWorld = CurrentWorld;
@@ -45,7 +53,7 @@ public partial class MainWindow
             if (installedMods.Any(m => m.ClientOnly) || ModSearch.Text != "Auto" || ModFilter.SelectedIndex != 2 || modSnapshot?.AnyEnabled("workshop-9001") == true) throw new InvalidOperationException("Automatic add changed filters, enabled a new Mod or exposed client mods");
             var windows = Application.Current.Windows.Count;
             var sample = installedMods.Single(m => m.Key == "workshop-9001");
-            var editor = new ModSettingsWindow(sample, modSnapshot!, (_, _) => throw new InvalidOperationException("No write allowed"));
+            var editor = new ModSettingsPanel(sample, modSnapshot!, (_, _) => throw new InvalidOperationException("No write allowed"));
             if (editor.FindName("TargetShard") is not null || editor.FindName("OptionSearch") is not null) throw new InvalidOperationException("Removed configuration controls remain");
             var overlay = ShowModSettingsAsync(editor); editor.CheckSmoke();
             Add("9004"); await Task.Delay(3200);

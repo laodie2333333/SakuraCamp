@@ -21,7 +21,7 @@ internal sealed class ModSettingRow : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public partial class ModSettingsWindow : UserControl
+public partial class ModSettingsPanel : UserControl
 {
     private readonly InstalledMod mod;
     private readonly WorldModSnapshot snapshot;
@@ -33,7 +33,7 @@ public partial class ModSettingsWindow : UserControl
     public bool IsSaving => saving;
     private string[] Shards => snapshot.Files.Select(f => f.Shard).ToArray();
 
-    public ModSettingsWindow(InstalledMod mod, WorldModSnapshot snapshot, Func<IReadOnlyDictionary<string, LuaValue>, string[], Task> save)
+    public ModSettingsPanel(InstalledMod mod, WorldModSnapshot snapshot, Func<IReadOnlyDictionary<string, LuaValue>, string[], Task> save)
     {
         this.mod = mod; this.snapshot = snapshot; this.save = save;
         InitializeComponent();

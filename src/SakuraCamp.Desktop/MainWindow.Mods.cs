@@ -76,7 +76,7 @@ public partial class MainWindow
         await Guard(async () =>
         {
             RequireIdle(); var world = RequireWorld();
-            var snapshot = modSnapshot ?? throw new InvalidOperationException("请先刷新本机 Mod，确认世界配置可以读取。");
+            var snapshot = modSnapshot ?? throw new InvalidOperationException("本地 Mod 配置尚未就绪，请等待自动更新后重试。");
             var enabled = card.EnableOnToggle;
             var backup = await Task.Run(() => WorldMods.Apply(world, snapshot, card.Mod, enabled, null, snapshot.Files.Select(f => f.Shard).ToArray(), store.BackupRoot));
             AppendLog($"Mod {card.Name} 已{(enabled ? "启用" : "停用")}；配置备份：{backup}");
@@ -91,9 +91,9 @@ public partial class MainWindow
         await Guard(async () =>
         {
             RequireIdle(); var world = RequireWorld();
-            var snapshot = modSnapshot ?? throw new InvalidOperationException("请先刷新本机 Mod。");
+            var snapshot = modSnapshot ?? throw new InvalidOperationException("本地 Mod 正在更新，请稍后重试。");
             WorldMods.CheckCurrent(snapshot);
-            var dialog = new ModSettingsWindow(card.Mod, snapshot, async (changes, shards) =>
+            var dialog = new ModSettingsPanel(card.Mod, snapshot, async (changes, shards) =>
             {
                 if (changes.Count == 0) return;
                 RequireIdle();

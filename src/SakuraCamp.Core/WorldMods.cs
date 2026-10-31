@@ -55,7 +55,7 @@ public static class WorldMods
     {
         WorldFiles.RequireStopped();
         if (!Path.GetFullPath(world.Path).Equals(Path.GetFullPath(snapshot.WorldPath), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("世界已切换，请刷新 Mod 管理后重试。");
+            throw new InvalidOperationException("世界已切换，请等待 Mod 列表自动更新后重试。");
         if (shards.Count == 0 || shards.Any(s => !snapshot.Files.Any(f => f.Shard == s))) throw new InvalidOperationException("无效的世界配置目标。");
         if (enabled == true && (!mod.Downloaded || mod.ClientOnly || mod.Error.Length > 0)) throw new InvalidOperationException("此 Mod 未完整读取、未下载或仅供客户端使用，无法启用。");
         if (options is not null)
@@ -121,7 +121,7 @@ public static class WorldMods
         {
             var current = File.Exists(file.Path) ? File.ReadAllBytes(file.Path) : null;
             if ((current is null) != (file.Original is null) || current is not null && !current.AsSpan().SequenceEqual(file.Original))
-                throw new InvalidOperationException("Mod 配置已被游戏或其他程序修改，请刷新本机 Mod 后重试，避免覆盖新设置。");
+                throw new InvalidOperationException("Mod 配置已被游戏或其他程序修改，请等待列表自动更新后重新打开配置，避免覆盖新设置。");
         }
     }
 
