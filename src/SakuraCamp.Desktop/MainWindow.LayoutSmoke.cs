@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SakuraCamp.Core;
@@ -9,6 +10,53 @@ namespace SakuraCamp.Desktop;
 
 public partial class MainWindow
 {
+    private async Task VerifyDarkScrollingSmokeAsync(string directory)
+    {
+        var oldTab = Tabs.SelectedItem; var oldEnabled = WorldList.IsEnabled;
+        var oldWidth = Width; var oldHeight = Height; var selected = CurrentWorld;
+        try
+        {
+            foreach (var size in new[] { (1220d, 850d), (MinWidth, MinHeight) })
+            {
+                Width = size.Item1; Height = size.Item2;
+                Tabs.SelectedItem = OverviewTab; WorldList.IsEnabled = true; UpdateLayout();
+                var scroll = VisualChildren<ScrollViewer>(WorldList).Single();
+                scroll.ScrollToTop(); UpdateLayout();
+                foreach (var locked in new[] { false, true })
+                {
+                    WorldList.IsEnabled = !locked;
+                    Tabs.SelectedItem = ConnectionTab; Tabs.SelectedItem = OverviewTab;
+                    await Task.Delay(60); UpdateLayout();
+                    var pixels = RenderInput(WorldList); var bright = 0;
+                    for (var offset = 0; offset < pixels.Length; offset += 4)
+                        if (pixels[offset] > 220 && pixels[offset + 1] > 220 && pixels[offset + 2] > 220 && pixels[offset + 3] > 220) bright++;
+                    if (bright > pixels.Length / 4 * 0.04) throw new InvalidOperationException("World list acquired a light background when locked");
+                    if (CurrentWorld != selected) throw new InvalidOperationException("Locking world list changed the selected world");
+                    SaveSmokeScreenshot(Path.Combine(directory, $"worlds-{size.Item1}-{(locked ? "locked" : "idle")}.png"));
+                }
+                WorldList.IsEnabled = true; UpdateLayout();
+                var bar = VisualChildren<ScrollBar>(scroll).Single(b => b.Orientation == Orientation.Vertical);
+                if (bar.Template.FindName("ScrollThumb", bar) is not Thumb thumb || thumb.Template.FindName("Handle", thumb) is not Border { CornerRadius.TopLeft: 3 })
+                    throw new InvalidOperationException("World scrollbar did not use the rounded dark template");
+                if (scroll.ScrollableHeight <= 0 || bar.ActualWidth > 12.5) throw new InvalidOperationException("World scrollbar layout regression");
+                ScrollBar.PageDownCommand.Execute(null, bar); await Task.Delay(60); UpdateLayout();
+                if (scroll.VerticalOffset <= 0) throw new InvalidOperationException("Scrollbar page-down did not move content");
+                scroll.ScrollToTop(); UpdateLayout();
+                thumb.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+                thumb.RaiseEvent(new DragDeltaEventArgs(0, 25) { RoutedEvent = Thumb.DragDeltaEvent });
+                thumb.RaiseEvent(new DragCompletedEventArgs(0, 25, false) { RoutedEvent = Thumb.DragCompletedEvent });
+                await Task.Delay(60); UpdateLayout();
+                if (scroll.VerticalOffset <= 0) throw new InvalidOperationException("Dragging scrollbar did not move content");
+                scroll.ScrollToTop();
+            }
+            Tabs.SelectedItem = ModManagerTab; UpdateLayout();
+            var modBar = VisualChildren<ScrollBar>(ModScroll).Single(b => b.Orientation == Orientation.Vertical);
+            if (modBar.Template.FindName("ScrollThumb", modBar) is not Thumb) throw new InvalidOperationException("Mod scrollbar retained system theme");
+            File.WriteAllText(Path.Combine(directory, "dark-scroll-report.json"), "{\"lockedWorldBackground\":true,\"selectionPreserved\":true,\"roundedScrollbars\":true,\"pageDown\":true,\"drag\":true,\"twoWindowSizes\":true}");
+        }
+        finally { WorldList.IsEnabled = oldEnabled; Width = oldWidth; Height = oldHeight; Tabs.SelectedItem = oldTab; }
+    }
+
     private static byte[] RenderInput(FrameworkElement element)
     {
         var bitmap = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32);

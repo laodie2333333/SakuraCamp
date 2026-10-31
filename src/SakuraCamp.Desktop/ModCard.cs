@@ -12,7 +12,6 @@ internal sealed class ModCard(InstalledMod mod, WorldModSnapshot? snapshot, Imag
     public string Version => "版本 " + mod.Version;
     public string Author => "作者 · " + mod.Author;
     public string Key => mod.WorkshopId.Length > 0 ? "工坊 " + mod.WorkshopId : mod.Key;
-    public string Description => mod.Description.Length == 0 ? "作者未提供说明" : mod.Description;
     public string Error => mod.Error;
     public ImageSource? Image => image;
     public string Initial => Name.Length > 0 ? Name[..1] : "M";

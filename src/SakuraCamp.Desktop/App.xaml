@@ -4,6 +4,62 @@
              xmlns:local="clr-namespace:SakuraCamp.Desktop"
              >
     <Application.Resources>
-         
+        <Style TargetType="ScrollViewer">
+            <Setter Property="local:SmoothScroll.Enabled" Value="True"/>
+            <Setter Property="CanContentScroll" Value="False"/>
+        </Style>
+        <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="ScrollHandle" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="Handle" Background="#55617B" CornerRadius="3" Margin="3,2"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Handle" Property="Background" Value="#F5A962"/></Trigger>
+                            <Trigger Property="IsDragging" Value="True"><Setter TargetName="Handle" Property="Background" Value="#FFC183"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Handle" Property="Background" Value="#3D465B"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="MinWidth" Value="12"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True"
+                                   Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" ViewportSize="{TemplateBinding ViewportSize}"
+                                   Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <Track.DecreaseRepeatButton><RepeatButton x:Name="PageBack" Style="{StaticResource ScrollPageButton}" Command="{x:Static ScrollBar.PageUpCommand}"/></Track.DecreaseRepeatButton>
+                                <Track.Thumb><Thumb x:Name="ScrollThumb" Style="{StaticResource ScrollHandle}" MinHeight="24"/></Track.Thumb>
+                                <Track.IncreaseRepeatButton><RepeatButton x:Name="PageForward" Style="{StaticResource ScrollPageButton}" Command="{x:Static ScrollBar.PageDownCommand}"/></Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                                <Setter TargetName="PageBack" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}"/>
+                                <Setter TargetName="PageForward" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}"/>
+                                <Setter TargetName="ScrollThumb" Property="MinHeight" Value="0"/>
+                                <Setter TargetName="ScrollThumb" Property="MinWidth" Value="24"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/><Setter Property="Height" Value="12"/></Trigger>
+            </Style.Triggers>
+        </Style>
     </Application.Resources>
 </Application>

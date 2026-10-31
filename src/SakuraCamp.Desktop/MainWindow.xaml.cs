@@ -41,31 +41,7 @@ public partial class MainWindow : Window
             if (App.SmokeDirectory is { } directory) await SmokeAsync(directory);
         };
 
-        // 输入控件上的滚轮事件转发到父滚动容器
-        PreviewMouseWheel += (s, e) =>
-        {
-            if (e.OriginalSource is DependencyObject obj)
-            {
-                // 检查是否在输入控件上
-                var controlParent = obj;
-                while (controlParent != null && controlParent is not TextBox && controlParent is not PasswordBox && controlParent is not ComboBox)
-                {
-                    controlParent = System.Windows.Media.VisualTreeHelper.GetParent(controlParent);
-                }
-
-                if (controlParent is TextBox || controlParent is PasswordBox || controlParent is ComboBox)
-                {
-                    // 找到父级 ScrollViewer 并滚动
-                    var scrollViewer = FindVisualParent<ScrollViewer>(controlParent);
-                    if (scrollViewer != null)
-                    {
-                        double offset = scrollViewer.VerticalOffset - (e.Delta / 2.0);
-                        scrollViewer.ScrollToVerticalOffset(offset);
-                        e.Handled = true;
-                    }
-                }
-            }
-        };
+        InitializeWindowChrome();
     }
 
     private T? FindVisualParent<T>(DependencyObject child) where T : DependencyObject
@@ -122,6 +98,7 @@ public partial class MainWindow : Window
     private async void WorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!initialized) return;
+        if (KeepUnsavedRuleWorld(e)) return;
         if (CurrentWorld is null)
         {
             ++modScanGeneration; modSnapshot = null; installedMods = []; modCards = []; mods = [];
@@ -137,6 +114,7 @@ public partial class MainWindow : Window
             CavesTunnel.SelectedValue = world.HasCaves ? profile?.CavesTunnelId : null;
             CreationScope.SelectedIndex = profile?.PublicServer == true ? 1 : 0;
             RestoreWorldNode(profile);
+            ResetWorldRules();
             RecoveryButton.Visibility = profile?.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             RetryNodeChange.Visibility = profile?.NodeChange is not null || profile?.PendingTunnelShards.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateTunnelFields();
@@ -296,6 +274,7 @@ public partial class MainWindow : Window
     private async Task StartWorldAndTunnelsAsync()
     {
         RequireIdle();
+        await SavePendingWorldRulesAsync();
         if (string.IsNullOrWhiteSpace(SakuraToken.Password))
             throw new InvalidOperationException("一键开服会自动启动樱花通道，请在联机设置中填写樱花访问密钥，保存后会在本机加密记住密钥。不会在通道未启动时单独启动世界。");
         StatusText.Text = "正在恢复当前世界的隧道方案…";
@@ -352,7 +331,6 @@ public partial class MainWindow : Window
             await session.StartWithTunnelsAsync(plan, store.BackupRoot, frpc, verifyOnline: VerifyOnline);
         }
         StatusText.Text = "樱花通道与服务器均已就绪。可复制命令加入。";
-        Tabs.SelectedItem = LiveTab;
         await RefreshLiveStatusAsync();
     }
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Guard(async () => { StatusText.Text = "正在保存世界，请稍候…"; StatusText.Text = await session.StopAsync() ? "已保存关服。" : "保存退出尚未完成，请查看日志。"; });
@@ -402,7 +380,7 @@ public partial class MainWindow : Window
     }
     private async Task Guard(Func<Task> action) { if (busy) return; busy = true; UpdateControls(); try { await action(); } catch (Exception ex) { ShowError(ex); } finally { busy = false; UpdateControls(); } }
     private void ShowError(Exception ex) { var message = LogReader.Redact(ex.Message, SakuraToken.Password, KleiToken.Password, WorldPassword.Password); StatusText.Text = message; AppendLog("提示：" + message); if (App.SmokeDirectory is not null) { File.WriteAllText(Path.Combine(App.SmokeDirectory, "error.txt"), message); return; } MessageBox.Show(this, message, "樱火营地", MessageBoxButton.OK, MessageBoxImage.Information); }
-    private void UpdateControls() { if (!initialized) return; var running = session.HasProcesses; WorldList.IsEnabled = !busy && !running; ConnectPanel.IsEnabled = !busy; SettingsPanel.IsEnabled = !busy && !running; StartButton.IsEnabled = !busy && !running && CurrentWorld is not null; StopButton.IsEnabled = !busy && running; ApiPanel.IsEnabled = !running; UpdateTunnelFields(); UpdateModEditing(); }
+    private void UpdateControls() { if (!initialized) return; var running = session.HasProcesses; WorldList.IsEnabled = !busy && !running; ConnectPanel.IsEnabled = !busy; SettingsPanel.IsEnabled = !busy && !running; StartButton.IsEnabled = !busy && !running && CurrentWorld is not null; StopButton.IsEnabled = !busy && running; ApiPanel.IsEnabled = !running; UpdateTunnelFields(); UpdateModEditing(); UpdateRuleEditing(); }
     private async void Window_Closing(object? sender, CancelEventArgs e) { if (busy) { e.Cancel = true; StatusText.Text = "正在执行操作，请稍后再关闭。"; return; } if (!session.HasProcesses) return; e.Cancel = true; if (MessageBox.Show(this, "服务器正在运行。保存并关闭后退出工具？", "保存关服", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { await Guard(async () => { if (await session.StopAsync()) _ = Dispatcher.BeginInvoke(Close); }); } }
     private void BrowseRoot_Click(object sender, RoutedEventArgs e) => PickFolder(RootPath, "选择 DoNotStarveTogether 存档目录");
     private void BrowseWorkshop_Click(object sender, RoutedEventArgs e) => PickFolder(WorkshopPath, "选择 steamapps\\workshop 目录");
@@ -545,6 +523,9 @@ public partial class MainWindow : Window
             await VerifyNodeSelectionSmokeAsync();
             VerifySavedSettingsSmoke(directory);
             await VerifyConnectionLayoutSmokeAsync(directory);
+            await VerifyDarkScrollingSmokeAsync(directory);
+            await VerifyMotionSmokeAsync(directory);
+            await VerifyWorldRulesSmokeAsync(directory);
             await VerifyModWatchingSmokeAsync(directory);
             Tabs.SelectedItem = ModManagerTab; UpdateLayout();
             VerifyModTooltipSmoke(ModList, true);
@@ -554,6 +535,7 @@ public partial class MainWindow : Window
             for (var index = 0; index < Tabs.Items.Count; index++)
             {
                 Tabs.SelectedIndex = index; await Task.Delay(250); UpdateLayout();
+                if (Tabs.SelectedItem == RulesTab) { await ruleLoadTask; UpdateLayout(); }
                 var tabOrigin = Tabs.TranslatePoint(new Point(), this);
                 if (Math.Abs(tabOrigin.X - 28) > 1 || Math.Abs(tabOrigin.Y - 109) > 1) throw new InvalidOperationException("Navigation moved between pages");
                 if ((StartButton.IsVisible || MasterStatus.IsVisible) && Tabs.SelectedItem != ConnectionTab) throw new InvalidOperationException("Connection controls leaked into a function page");
@@ -564,7 +546,7 @@ public partial class MainWindow : Window
                 using var stream = File.Create(Path.Combine(directory, $"tab-{index}.png")); encoder.Save(stream);
             }
             Width = MinWidth; Height = MinHeight;
-            foreach (var tab in new[] { OverviewTab, (TabItem)Tabs.Items[1], ModManagerTab })
+            foreach (var tab in new[] { OverviewTab, ConnectionTab, RulesTab, ModManagerTab })
             {
                 Tabs.SelectedItem = tab; await Task.Delay(150); UpdateLayout();
                 SaveSmokeScreenshot(Path.Combine(directory, $"minimum-{Tabs.SelectedIndex}.png"));

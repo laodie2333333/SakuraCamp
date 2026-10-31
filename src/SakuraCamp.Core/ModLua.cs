@@ -9,7 +9,7 @@ namespace SakuraCamp.Core;
 // Keep the VM private: callers receive plain values, never executable Lua functions.
 internal static class ModLua
 {
-    public static (Script Script, DynValue Result) Read(string source, string folder = "", bool metadata = false)
+    public static (Script Script, DynValue Result) Read(string source, string folder = "", bool metadata = false, Action<Script>? configure = null)
     {
         if (source.Length > 2 * 1024 * 1024) throw new InvalidOperationException("Mod 配置文件过大，无法读取。");
         var script = new Script(CoreModules.Basic | CoreModules.GlobalConsts | CoreModules.TableIterators |
@@ -34,6 +34,7 @@ internal static class ModLua
             if (!double.IsFinite(n) || n < 0 || n > 65536 || text.Length * n > 65536) throw new ScriptRuntimeException("string.rep limit");
             return DynValue.NewString(string.Concat(Enumerable.Repeat(text, (int)n)));
         }));
+        configure?.Invoke(script);
         try
         {
             var function = script.LoadString(source, codeFriendlyName: metadata ? "modinfo" : "modoverrides");
