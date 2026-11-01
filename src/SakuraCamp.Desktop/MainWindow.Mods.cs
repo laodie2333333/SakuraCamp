@@ -34,7 +34,7 @@ public partial class MainWindow
             var catalog = ModCatalog.Scan(workshop, server, snapshot?.Keys);
             // Client-only mods never appear in the server management UI.
             var serverMods = catalog.Where(m => !m.ClientOnly).ToArray();
-            var cards = serverMods.Select(m => new ModCard(m, snapshot, ModImages.Load(m))).ToArray();
+            var cards = serverMods.Select(m => new ModCard(m, snapshot, ModImages.Load(m, QueueSessionLog))).ToArray();
             return (snapshot, serverMods, cards, error, fingerprint);
         });
         if (generation != modScanGeneration || CurrentWorld?.Path != world.Path || (automatic && (busy || activeModSettings is not null || modWatchClosed))) return;

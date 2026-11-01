@@ -25,7 +25,7 @@ public partial class MainWindow
         if (avatarExecutable == executable) return;
         avatarExecutable = executable;
         try { characterAvatars = await Task.Run(() => CharacterAvatars.Load(executable)); }
-        catch (Exception ex) when (ex is System.IO.IOException or System.Xml.XmlException or FormatException or ArgumentException or OverflowException or UnauthorizedAccessException)
+        catch (Exception ex) when (ImageFailures.IsRecoverable(ex))
         { characterAvatars = []; AppendLog("角色头像读取失败，将显示通用占位头像：" + ex.Message); }
         playerCards.Clear();
     }

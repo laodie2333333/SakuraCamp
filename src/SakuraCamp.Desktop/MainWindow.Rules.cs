@@ -70,7 +70,7 @@ public partial class MainWindow
             var data = await Task.Run(() =>
             {
                 var catalog = WorldRuleCatalog.Load(server);
-                return (Catalog: catalog, Snapshot: WorldRules.Read(world), Icons: WorldRuleImages.Load(server, catalog));
+                return (Catalog: catalog, Snapshot: WorldRules.Read(world), Icons: WorldRuleImages.Load(server, catalog, QueueSessionLog));
             });
             if (generation != ruleGeneration || CurrentWorld?.Path != world.Path) return;
             ruleCatalog = data.Catalog; ruleSnapshot = data.Snapshot;

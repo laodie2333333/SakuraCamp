@@ -1,6 +1,6 @@
 # 樱火营地 SakuraCamp
 
-Windows 桌面工具，用于管理《饥荒联机版》本地独立服务器、服务器 Mod 和 SakuraFrp 地上/洞穴隧道。当前版本 **0.3.2**，沿用 0.1.5 的 UI 基线增量开发。
+Windows 桌面工具，用于管理《饥荒联机版》本地独立服务器、服务器 Mod 和 SakuraFrp 地上/洞穴隧道。当前版本 **0.3.3**，沿用 0.1.5 的 UI 基线增量开发。
 
 ## 当前使用流程
 
@@ -27,6 +27,7 @@ Windows 桌面工具，用于管理《饥荒联机版》本地独立服务器、
 dotnet build SakuraCamp.sln -c Release
 dotnet run --project src/SakuraCamp.Desktop -c Release
 dotnet run --project tests/SakuraCamp.Tests -c Release
+dotnet run --project tests/SakuraCamp.Desktop.Tests -c Release
 ```
 
 生成无需安装 .NET 的 Windows x64 单文件包：
@@ -53,6 +54,16 @@ dotnet publish src/SakuraCamp.Desktop/SakuraCamp.Desktop.csproj -c Release -r wi
 ## 版本日志
 
 以下按版本号从新到旧排列；历史页面名称、操作和限制以各版本当时的行为为准，当前操作见上方流程。
+
+## 0.3.3 更新 · 图片异常导致退出修复
+
+- 修复不支持的 KTEX 图片压缩格式导致程序退出的问题。原解码器抛出的 InvalidDataException 没有被 IOException 捕获；现在角色头像、Mod 图标和世界规则图标统一处理可恢复的图片异常，不弹出阻断窗口，不中断后续界面初始化。
+- 角色头像读取失败时使用占位头像；规则图标失败时使用文字占位，规则仍可读取和编辑。损坏图片包同样降级处理，单个规则图集失败不影响其他图集。
+- Mod 图标不支持、损坏或预览图损坏时，继续尝试其他本地预览图；均不可用时显示卡片文字占位，不影响 Mod 清单和配置读取。
+- 图片失败详情写入日志，可继续在“日志与诊断”导出脱敏日志。提示包含 KTEX 压缩格式编号；当前仍只解码 DXT5，其他格式显示占位，不将未知格式当作 DXT5 读取。
+- 保留 0.3.2 的新 Logo、0.3.1 的规则卡片性能优化及现有功能。
+
+验证：17 项桌面图片专项检查通过，覆盖不支持格式、截断纹理、损坏 ZIP、有效 DXT5 像素、Mod 多级预览图回退、规则文字占位，以及真实窗口 Loaded 初始化继续完成、导航响应和诊断缓冲保留。207 项核心检查通过，Release 构建无警告或错误。异常场景使用隔离的模拟资源，未取得反馈玩家的原始图片包，不能据此判断其资源为何采用其他格式；未改动用户存档或操作真实通道。
 
 ## 0.3.2 更新 · 程序 Logo
 

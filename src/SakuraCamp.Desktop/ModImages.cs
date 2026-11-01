@@ -10,7 +10,7 @@ namespace SakuraCamp.Desktop;
 
 internal static class ModImages
 {
-    public static ImageSource? Load(InstalledMod mod)
+    public static ImageSource? Load(InstalledMod mod, Action<string>? warning = null)
     {
         if (!mod.Downloaded) return null;
         try
@@ -37,7 +37,12 @@ internal static class ModImages
                     (int)Math.Round((U("u2") - U("u1")) * image.PixelWidth), (int)Math.Round((U("v2") - U("v1")) * image.PixelHeight));
                 var crop = new CroppedBitmap(image, rect); crop.Freeze(); return crop;
             }
-            foreach (var name in new[] { "preview.png", "preview.jpg", "modicon.png", "modicon.jpg", "icon.png" })
+        }
+        catch (Exception ex) when (ImageFailures.IsRecoverable(ex))
+        { warning?.Invoke($"Mod 图片读取失败（{mod.Key}），尝试预览图或文字占位：{ex.Message}"); }
+        foreach (var name in new[] { "preview.png", "preview.jpg", "modicon.png", "modicon.jpg", "icon.png" })
+        {
+            try
             {
                 var path = SafePath(mod.Folder, name);
                 if (path is null || !File.Exists(path) || new FileInfo(path).Length > 8 * 1024 * 1024) continue;
@@ -45,8 +50,9 @@ internal static class ModImages
                 var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad;
                 image.DecodePixelWidth = 160; image.StreamSource = stream; image.EndInit(); image.Freeze(); return image;
             }
+            catch (Exception ex) when (ImageFailures.IsRecoverable(ex))
+            { warning?.Invoke($"Mod 预览图读取失败（{mod.Key}/{name}），继续使用其他图片或文字占位：{ex.Message}"); }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or OverflowException or System.Xml.XmlException or NotSupportedException) { }
         return null;
     }
 

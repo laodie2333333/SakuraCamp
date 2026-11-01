@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SakuraCamp.Core\SakuraCamp.Core.csproj" />
+    <InternalsVisibleTo Include="SakuraCamp.Desktop.Tests" />
   </ItemGroup>
 
   <ItemGroup>

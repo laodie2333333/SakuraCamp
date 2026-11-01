@@ -13,7 +13,17 @@ namespace SakuraCamp.Desktop;
 // Use the atlas and image specified by each game rule. Do not ship game artwork.
 internal static class WorldRuleImages
 {
-    public static Dictionary<string, ImageSource> Load(string executable, IReadOnlyList<WorldRuleDefinition> rules)
+    public static Dictionary<string, ImageSource> Load(string executable, IReadOnlyList<WorldRuleDefinition> rules, Action<string>? warning = null)
+    {
+        try { return LoadImages(executable, rules, warning); }
+        catch (Exception ex) when (ImageFailures.IsRecoverable(ex))
+        {
+            warning?.Invoke("世界规则图片资源读取失败，使用文字占位，规则仍可编辑：" + ex.Message);
+            return [];
+        }
+    }
+
+    private static Dictionary<string, ImageSource> LoadImages(string executable, IReadOnlyList<WorldRuleDefinition> rules, Action<string>? warning)
     {
         var result = new Dictionary<string, ImageSource>();
         var folder = Path.GetDirectoryName(Path.GetFullPath(executable))!;
@@ -54,7 +64,8 @@ internal static class WorldRuleImages
                     var crop = new CroppedBitmap(image, rect); crop.Freeze(); result[rule.Key] = crop;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException or ArgumentException or FormatException or OverflowException or NotSupportedException) { }
+            catch (Exception ex) when (ImageFailures.IsRecoverable(ex))
+            { warning?.Invoke($"世界规则图标读取失败（{group.Key}），使用文字占位：{ex.Message}"); }
         }
         return result;
     }

@@ -47,7 +47,8 @@ internal static class CharacterAvatars
         using var reader = new BinaryReader(input, System.Text.Encoding.UTF8, leaveOpen: true);
         if (reader.ReadUInt32() != 0x5845544b) throw new InvalidDataException("Unsupported game texture");
         var header = reader.ReadUInt32();
-        if (((header >> 4) & 31) != 2) throw new InvalidDataException("Unsupported portrait compression");
+        var compression = (header >> 4) & 31;
+        if (compression != 2) throw new InvalidDataException($"不支持的 KTEX 图片压缩格式（编号 {compression}），当前支持 DXT5。");
         var levels = (int)((header >> 13) & 31);
         if (levels < 1 || levels > 16) throw new InvalidDataException("Invalid portrait mip count");
         var width = reader.ReadUInt16(); var height = reader.ReadUInt16();

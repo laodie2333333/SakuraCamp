@@ -346,7 +346,7 @@
                     <Button x:Name="MaximizeCaption" Style="{StaticResource CaptionButton}" Click="MaximizeCaption_Click" AutomationProperties.Name="最大化"><TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/></Button>
                     <Button x:Name="CloseCaption" Style="{StaticResource CloseCaptionButton}" Click="CloseCaption_Click" AutomationProperties.Name="关闭"><TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/></Button>
                 </StackPanel>
-                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
+                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.3" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
             </Grid>
         </Border>
         <Grid x:Name="WorkspaceSurface" Grid.Row="1" Margin="28,24,28,14">
