@@ -205,6 +205,7 @@ Check(emptyRecovery.NodeUnlocked && !emptyRecovery.ConfirmationRequired && empty
     "definitively failed creation without matching tunnels unlocks node after read-only check");
 await NodeChangeChecks.Run(Check);
 WorldRuleChecks.Run(workspace, Check);
+await ServerUpdateChecks.Run(workspace, Check);
 Console.WriteLine($"ALL {passed} CHECKS PASSED. Fixtures: {workspace}");
 
 sealed class FixtureHandler(Func<HttpRequestMessage, string> respond) : HttpMessageHandler

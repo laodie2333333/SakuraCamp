@@ -102,6 +102,23 @@ internal static class Program
         var exported = LogReader.Redact(string.Join(Environment.NewLine, logs));
         File.WriteAllText(Path.Combine(root, "SakuraCamp-diagnostics.txt"), exported);
         Check(exported.Contains("image fallback test") && exported.Contains("角色头像读取失败"), "diagnostic buffer remains available after avatar decode failure");
+        typeof(MainWindow).GetMethod("AppendLog", flags)!.Invoke(window, ["Version: desktop-start-version"]);
+        await Task.Run(() =>
+        {
+            for (var i = 0; i < 10000; i++) typeof(MainWindow).GetMethod("QueueSessionLog", flags)!.Invoke(window, ["[Master] full-log-" + i]);
+        });
+        typeof(MainWindow).GetMethod("DrainPendingLogs", flags)!.Invoke(window, [int.MaxValue]);
+        Check(logs.Count <= 600 && !logs.Any(l => l.Contains("desktop-start-version")), "UI buffer stays bounded while complete journal retains early startup");
+        typeof(MainWindow).GetMethod("ClearLog_Click", flags)!.Invoke(window, [null, new System.Windows.RoutedEventArgs()]);
+        var fullExportPath = Path.Combine(root, "complete-desktop-diagnostics.txt");
+        await (Task)typeof(MainWindow).GetMethod("ExportDiagnosticsAsync", flags)!.Invoke(window, [fullExportPath])!;
+        var fullExport = await File.ReadAllTextAsync(fullExportPath);
+        Check(logs.Count == 0 && fullExport.Contains("Version: desktop-start-version") && fullExport.Contains("full-log-0\r\n") && fullExport.Contains("full-log-9999"),
+            "actual desktop export retains version and all 10000 queued messages after clear display");
+        Check(fullExport.Split("full-log-").Length - 1 == 10000, "complete journal records each queued server line once, without UI drain duplicates");
+        var updateButton = window.FindName("CancelServerUpdateButton") as System.Windows.Controls.Button;
+        Check(window.FindName("ServerVersionHint") is TextBlock && updateButton?.Visibility == System.Windows.Visibility.Collapsed,
+            "server version UI loads with cancel hidden until a real check begins");
         // Close without showing the real startup window; dispose timers and log tasks.
         await (Task)typeof(MainWindow).GetMethod("FinishLogsAsync", flags)!.Invoke(window, null)!;
         window.Close();
@@ -124,6 +141,15 @@ internal static class Program
         Check(ReferenceEquals(tabs.SelectedItem, tabs.Items[tabs.Items.Count - 1]), "navigation still responds after image failure");
         var startupLogs = (Queue<string>)typeof(MainWindow).GetField("logLines", flags)!.GetValue(startup)!;
         Check(startupLogs.Any(l => l.Contains("角色头像读取失败")), "startup failure details remain available to diagnostic export");
+        tabs.SelectedItem = startup.FindName("FilesTab");
+        startup.UpdateLayout();
+        var versionHint = (TextBlock)startup.FindName("ServerVersionHint");
+        Check(versionHint.IsVisible && versionHint.ActualWidth > 200 && versionHint.ActualHeight > 0, "version and update panel is visible in real window file settings page");
+        var screenshot = new RenderTargetBitmap((int)startup.ActualWidth, (int)startup.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        screenshot.Render(startup);
+        var screenshots = Path.Combine(Directory.GetCurrentDirectory(), "work", "screenshots-0.3.4"); Directory.CreateDirectory(screenshots);
+        var pngEncoder = new PngBitmapEncoder(); pngEncoder.Frames.Add(BitmapFrame.Create(screenshot));
+        using (var imageFile = File.Create(Path.Combine(screenshots, "server-updates.png"))) pngEncoder.Save(imageFile);
         await (Task)typeof(MainWindow).GetMethod("FinishLogsAsync", flags)!.Invoke(startup, null)!;
         startup.Close();
     }

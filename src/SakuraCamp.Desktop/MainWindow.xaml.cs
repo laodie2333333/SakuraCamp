@@ -283,9 +283,10 @@ public partial class MainWindow : Window
     private async Task StartWorldAndTunnelsAsync()
     {
         RequireIdle();
-        await SavePendingWorldRulesAsync();
         if (string.IsNullOrWhiteSpace(SakuraToken.Password))
             throw new InvalidOperationException("一键开服会自动启动樱花通道，请在联机设置中填写樱花访问密钥，保存后会在本机加密记住密钥。不会在通道未启动时单独启动世界。");
+        await EnsureServerVersionAsync(false);
+        await SavePendingWorldRulesAsync();
         StatusText.Text = "正在恢复当前世界的隧道方案…";
         await EnsureConnectionTunnelsAsync();
         var plan = BuildPlan(); plan.Validate(); SaveProfile();
@@ -382,10 +383,28 @@ public partial class MainWindow : Window
         CopyText(WorldMods.SyncList(installedMods, snapshot)); StatusText.Text = "已复制当前世界启用的 Mod 清单和工坊链接。"; return Task.CompletedTask;
     });
     private async void RefreshMods_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentWorld is { } world) await RefreshModManagerAsync(world); });
-    private async void ImportLog_Click(object sender, RoutedEventArgs e) => await Guard(() => { var dialog = new OpenFileDialog { Filter = "日志文件|*.txt;*.log|所有文件|*.*", Title = "选择朋友最近一次失败后的 client_log.txt" }; if (dialog.ShowDialog() == true) { var text = LogReader.Redact(LogReader.Tail(dialog.FileName, 512 * 1024), WorldPassword.Password, KleiToken.Password, SakuraToken.Password); AppendLog("客户端日志诊断：\n" + string.Join("\n", LogReader.Diagnose(text))); foreach (var line in text.Split('\n').TakeLast(350)) AppendLog(line.TrimEnd('\r')); StatusText.Text = "已导入脱敏日志。"; } return Task.CompletedTask; });
-    private async void ExportLog_Click(object sender, RoutedEventArgs e) => await ReadOnlyAction(() => { DrainPendingLogs(int.MaxValue); var dialog = new SaveFileDialog { FileName = "SakuraCamp-diagnostics.txt", Filter = "文本文件|*.txt" }; if (dialog.ShowDialog() == true) File.WriteAllText(dialog.FileName, LogReader.Redact(string.Join(Environment.NewLine, logLines), WorldPassword.Password, KleiToken.Password, SakuraToken.Password), Encoding.UTF8); return Task.CompletedTask; });
+    private async void ImportLog_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
+    {
+        var dialog = new OpenFileDialog { Filter = "日志文件|*.txt;*.log|所有文件|*.*", Title = "选择朋友最近一次失败后的 client_log.txt" };
+        if (dialog.ShowDialog() != true) return;
+        var secrets = new[] { WorldPassword.Password, KleiToken.Password, SakuraToken.Password };
+        AppendLog("开始完整导入客户端日志：" + dialog.FileName);
+        await Task.Run(async () =>
+        {
+            using var input = new StreamReader(dialog.FileName, Encoding.UTF8, true);
+            while (await input.ReadLineAsync() is { } line) QueueSessionLog("[客户端导入] " + LogReader.Redact(line, secrets));
+        });
+        AppendLog("客户端日志诊断：\n" + string.Join("\n", LogReader.Diagnose(LogReader.Tail(dialog.FileName, 512 * 1024))));
+        StatusText.Text = "已完整导入脱敏日志；界面显示最近内容，导出保留全部导入记录。";
+    });
+    private async void ExportLog_Click(object sender, RoutedEventArgs e) => await ReadOnlyAction(async () => { DrainPendingLogs(int.MaxValue); var dialog = new SaveFileDialog { FileName = "SakuraCamp-diagnostics.txt", Filter = "文本文件|*.txt" }; if (dialog.ShowDialog() == true) { await ExportDiagnosticsAsync(dialog.FileName); StatusText.Text = "已导出本次程序启动以来的完整脱敏日志（截至点击导出时）。"; } });
     private void ClearLog_Click(object sender, RoutedEventArgs e) { pendingLogs.Clear(); pendingTunnelLogs.Clear(); logsDirty = tunnelLogsDirty = false; logLines.Clear(); LogBox.Clear(); tunnelLines.Clear(); TunnelLogBox.Clear(); }
     private void AppendLog(string line)
+    {
+        RecordDiagnostic(LogReader.Redact(line, SakuraToken.Password, KleiToken.Password, WorldPassword.Password));
+        AppendLogToView(line);
+    }
+    private void AppendLogToView(string line)
     {
         line = LogReader.Redact(line, SakuraToken.Password, KleiToken.Password, WorldPassword.Password);
         var formatted = $"{DateTime.Now:HH:mm:ss}  {line}";

@@ -128,6 +128,7 @@ public sealed class ManagedSession
     {
         public int Signals;
         public ConcurrentQueue<string> Recent { get; } = new();
+        public ConcurrentQueue<string> Fatal { get; } = new();
         public HashSet<string> ReadyProxies { get; } = new(StringComparer.Ordinal);
         public SemaphoreSlim InputLock { get; } = new(1, 1);
         public string? StatusRequestId;
@@ -242,6 +243,11 @@ public sealed class ManagedSession
                 }
                 Emit($"[{child.Name}] {line}");
                 child.Recent.Enqueue(LogReader.Redact(line, secrets));
+                if (Regex.IsMatch(line, @"(?i)LUA ERROR|\[string .+\]:\d+:|bad argument|MIGRATION PORTAL FAILURE|Can't find prefab|Stale Component Reference"))
+                {
+                    child.Fatal.Enqueue(LogReader.Redact(line, secrets));
+                    while (child.Fatal.Count > 8) child.Fatal.TryDequeue(out _);
+                }
                 while (child.Recent.Count > 12) child.Recent.TryDequeue(out _);
                 var success = child.Name == "樱花"
                     ? Regex.IsMatch(line, @"(?i)start proxy success|隧道.*启动成功|启动.*隧道.*成功")
@@ -264,7 +270,8 @@ public sealed class ManagedSession
     {
         await child.Process.WaitForExitAsync();
         if (readers.TryGetValue(child.Name, out var output)) await output;
-        var detail = string.Join(Environment.NewLine, child.Recent.Where(s => !string.IsNullOrWhiteSpace(s)).TakeLast(5));
+        var detail = string.Join(Environment.NewLine, child.Fatal.IsEmpty
+            ? child.Recent.Where(s => !string.IsNullOrWhiteSpace(s)).TakeLast(5) : child.Fatal);
         var exception = new InvalidOperationException($"{child.Name} 已退出（代码 {child.Process.ExitCode}）。\n{detail}");
         if (!stopping) startupFailure.TrySetResult(exception);
         IsReady = false;

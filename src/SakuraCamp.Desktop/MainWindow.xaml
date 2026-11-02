@@ -346,7 +346,7 @@
                     <Button x:Name="MaximizeCaption" Style="{StaticResource CaptionButton}" Click="MaximizeCaption_Click" AutomationProperties.Name="最大化"><TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/></Button>
                     <Button x:Name="CloseCaption" Style="{StaticResource CloseCaptionButton}" Click="CloseCaption_Click" AutomationProperties.Name="关闭"><TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/></Button>
                 </StackPanel>
-                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.3" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
+                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
             </Grid>
         </Border>
         <Grid x:Name="WorkspaceSurface" Grid.Row="1" Margin="28,24,28,14">
@@ -581,6 +581,12 @@
                         <TextBlock Text="自动发现，也能手动指定" Style="{StaticResource SectionTitle}"/><TextBlock Text="切换世界会沿用各自的 Mod、地图和密码。修改前先保存关服。" Style="{StaticResource Hint}"/>
                         <TextBlock Text="存档根目录" Margin="0,16,0,0"/><DockPanel><Button DockPanel.Dock="Right" Content="浏览" Click="BrowseRoot_Click" Margin="8,6,0,12"/><TextBox x:Name="RootPath"/></DockPanel>
                         <TextBlock Text="独立服务器程序"/><DockPanel><Button DockPanel.Dock="Right" Content="浏览" Click="BrowseServer_Click" Margin="8,6,0,12"/><TextBox x:Name="ServerPath"/></DockPanel>
+                        <Border Background="#252A38" CornerRadius="8" Padding="14" Margin="0,0,0,12"><StackPanel>
+                            <TextBlock Text="服务端版本与更新" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="ServerVersionHint" Text="每次开服前自动核对正式版版本；需要更新时自动下载独立服务端，校验通过后继续。" Style="{StaticResource Hint}" Margin="0,6,0,8"/>
+                            <WrapPanel><Button Content="检查并自动更新" Click="CheckServerVersion_Click"/><Button Content="更新并校验服务端" Click="RepairServer_Click"/></WrapPanel>
+                            <TextBlock Text="保留旧世界，使用兼容的新版服务端，不按世界生成版本降级。测试版须先在 Steam 切换为正式版；更新失败或版本无法核实时阻止开服。" Style="{StaticResource Hint}" FontSize="11"/>
+                        </StackPanel></Border>
                         <TextBlock Text="Steam 创意工坊目录（steamapps\workshop）"/><DockPanel><Button DockPanel.Dock="Right" Content="浏览" Click="BrowseWorkshop_Click" Margin="8,6,0,12"/><TextBox x:Name="WorkshopPath"/></DockPanel>
                         <TextBlock Text="樱花官方独立版 frpc.exe（一键开服首次缺少时会下载）"/><DockPanel><Button DockPanel.Dock="Right" Content="下载独立版" Click="DownloadFrpc_Click" Margin="8,6,0,12"/><Button DockPanel.Dock="Right" Content="浏览" Click="BrowseFrpc_Click" Margin="8,6,0,12"/><TextBox x:Name="FrpcPath"/></DockPanel>
                         <Button Content="保存环境设置并扫描" Click="Refresh_Click" HorizontalAlignment="Left"/>
@@ -588,7 +594,7 @@
                     </StackPanel></ScrollViewer></TabItem>
                     <TabItem x:Name="DiagnosticsTab" Header="日志与诊断"><Grid>
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                        <WrapPanel Margin="0,0,0,12"><Button Content="导入朋友的 client_log.txt" Click="ImportLog_Click"/><Button Content="导出脱敏日志" Click="ExportLog_Click"/><Button Content="清空显示" Click="ClearLog_Click"/></WrapPanel>
+                        <WrapPanel Margin="0,0,0,12"><Button Content="导入朋友的 client_log.txt" Click="ImportLog_Click"/><Button Content="导出完整脱敏日志" Click="ExportLog_Click"/><Button Content="清空显示" Click="ClearLog_Click"/></WrapPanel>
                         <Expander x:Name="TunnelLogExpander" Grid.Row="1" Header="樱花通道日志" IsExpanded="True" Foreground="#F5A962" Margin="0,0,0,10">
                             <StackPanel><TextBlock x:Name="TunnelLogHint" Text="在此查看通道开关操作、运行结果与官方在线核验记录。" Style="{StaticResource Hint}" FontSize="11" Margin="0,5,0,5"/>
                             <TextBox x:Name="TunnelLogBox" Height="140" VerticalContentAlignment="Top" Background="#252A38" Foreground="#C8CACD" FontFamily="Cascadia Mono,Consolas" FontSize="11" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0"/>
@@ -602,6 +608,7 @@
             <DockPanel VerticalAlignment="Center">
                 <TextBlock DockPanel.Dock="Right" Text="配置与备份仅保存在本机"
                            Foreground="{StaticResource Muted}" FontSize="11.5" Margin="20,0,0,0"/>
+                <Button x:Name="CancelServerUpdateButton" DockPanel.Dock="Right" Content="取消更新" Click="CancelServerUpdate_Click" Visibility="Collapsed" Padding="10,3" Margin="8,0,0,0"/>
                 <TextBlock x:Name="StatusText" Text="准备就绪" FontSize="12.5"
                            TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
             </DockPanel>

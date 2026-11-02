@@ -40,7 +40,7 @@ public static class Discovery
     }
 
     [SupportedOSPlatform("windows")]
-    public static (string Server, string Workshop, string Frpc) Installation()
+    public static IReadOnlyList<string> SteamLibraries()
     {
         var steam = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null)?.ToString();
         var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -54,6 +54,15 @@ public static class Discovery
             foreach (Match match in Regex.Matches(File.ReadAllText(file), "\"path\"\\s*\"([^\"]+)\""))
                 libraries.Add(match.Groups[1].Value.Replace(@"\\", @"\"));
         }
+        return libraries.ToArray();
+    }
+    [SupportedOSPlatform("windows")]
+    public static string[] GameExecutables() => SteamLibraries().Select(lib => Path.Combine(lib, "steamapps", "common", "Don't Starve Together", "bin64", ServerVersions.ExecutableName)).Where(File.Exists).ToArray();
+
+    [SupportedOSPlatform("windows")]
+    public static (string Server, string Workshop, string Frpc) Installation()
+    {
+        var libraries = SteamLibraries();
         string server = "", workshop = "";
         foreach (var lib in libraries)
         {
