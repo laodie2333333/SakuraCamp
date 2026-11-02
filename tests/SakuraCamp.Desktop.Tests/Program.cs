@@ -129,13 +129,20 @@ internal static class Program
             using (var entry = new StreamWriter(zip.CreateEntry("images/avatars.xml").Open())) entry.Write(atlas);
         }
         var worlds = Path.Combine(root, "empty-worlds"); Directory.CreateDirectory(worlds);
-        new SettingsStore(App.DataRoot).Save(new AppSettings { SaveRoot = worlds, ServerExe = exe, WorkshopPath = root });
+        File.WriteAllText(exe, "fixture server");
+        var missingServer = Path.Combine(root, "deleted-download", "bin64", ServerVersions.ExecutableName);
+        new SettingsStore(App.DataRoot).Save(new AppSettings { SaveRoot = worlds, ServerExe = missingServer, ServerHistory = [exe], WorkshopPath = root });
         var startup = new MainWindow();
         startup.Show();
         var deadline = DateTime.UtcNow.AddSeconds(15);
         var watch = (DispatcherTimer)typeof(MainWindow).GetField("modWatchTimer", flags)!.GetValue(startup)!;
         while (!watch.IsEnabled && DateTime.UtcNow < deadline) await Task.Delay(30);
         Check(startup.IsVisible && watch.IsEnabled, "actual Loaded startup completes after unsupported avatar compression without a fatal dialog");
+        Check(((TextBox)startup.FindName("ServerPath")).Text == exe && new SettingsStore(App.DataRoot).Load().ServerExe == exe,
+            "actual startup recovers a deleted selected server from history and persists the surviving path");
+        ((TextBox)startup.FindName("ServerPath")).Text = missingServer;
+        await (Task)typeof(MainWindow).GetMethod("RecoverServerPathAsync", flags)!.Invoke(startup, null)!;
+        Check(((TextBox)startup.FindName("ServerPath")).Text == exe, "runtime rescan restores an existing server after selected download is removed");
         var tabs = (TabControl)startup.FindName("Tabs");
         foreach (var tab in tabs.Items.Cast<TabItem>()) tabs.SelectedItem = tab;
         Check(ReferenceEquals(tabs.SelectedItem, tabs.Items[tabs.Items.Count - 1]), "navigation still responds after image failure");
@@ -147,7 +154,7 @@ internal static class Program
         Check(versionHint.IsVisible && versionHint.ActualWidth > 200 && versionHint.ActualHeight > 0, "version and update panel is visible in real window file settings page");
         var screenshot = new RenderTargetBitmap((int)startup.ActualWidth, (int)startup.ActualHeight, 96, 96, PixelFormats.Pbgra32);
         screenshot.Render(startup);
-        var screenshots = Path.Combine(Directory.GetCurrentDirectory(), "work", "screenshots-0.3.4"); Directory.CreateDirectory(screenshots);
+        var screenshots = Path.Combine(Directory.GetCurrentDirectory(), "work", "screenshots-0.3.6"); Directory.CreateDirectory(screenshots);
         var pngEncoder = new PngBitmapEncoder(); pngEncoder.Frames.Add(BitmapFrame.Create(screenshot));
         using (var imageFile = File.Create(Path.Combine(screenshots, "server-updates.png"))) pngEncoder.Save(imageFile);
         await (Task)typeof(MainWindow).GetMethod("FinishLogsAsync", flags)!.Invoke(startup, null)!;

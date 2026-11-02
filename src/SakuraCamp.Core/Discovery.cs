@@ -60,20 +60,32 @@ public static class Discovery
     public static string[] GameExecutables() => SteamLibraries().Select(lib => Path.Combine(lib, "steamapps", "common", "Don't Starve Together", "bin64", ServerVersions.ExecutableName)).Where(File.Exists).ToArray();
 
     [SupportedOSPlatform("windows")]
+    public static string[] ServerExecutables() => FindServerExecutables(SteamLibraries());
+
+    public static string[] FindServerExecutables(IEnumerable<string> libraries)
+    {
+        var result = new List<string>();
+        foreach (var library in libraries)
+        {
+            var folders = new List<string> { "Don't Starve Together Dedicated Server", "Don't Starve Together" };
+            foreach (var app in new[] { "343050", "322330" })
+            {
+                var manifest = Path.Combine(library, "steamapps", $"appmanifest_{app}.acf");
+                if (!File.Exists(manifest)) continue;
+                var folder = Regex.Match(File.ReadAllText(manifest), "\"installdir\"\\s*\"([^\"]+)\"").Groups[1].Value;
+                if (folder.Length > 0 && folder != "." && folder != ".." && folder.IndexOfAny(['/', '\\', ':']) < 0) folders.Add(folder);
+            }
+            result.AddRange(folders.Distinct(StringComparer.OrdinalIgnoreCase).Select(folder => Path.Combine(library, "steamapps", "common", folder, "bin64", ServerVersions.ExecutableName)).Where(File.Exists));
+        }
+        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    [SupportedOSPlatform("windows")]
     public static (string Server, string Workshop, string Frpc) Installation()
     {
         var libraries = SteamLibraries();
-        string server = "", workshop = "";
-        foreach (var lib in libraries)
-        {
-            foreach (var folder in new[] { "Don't Starve Together Dedicated Server", "Don't Starve Together" })
-            {
-                var candidate = Path.Combine(lib, "steamapps", "common", folder, "bin64", "dontstarve_dedicated_server_nullrenderer_x64.exe");
-                if (!File.Exists(candidate) || server.Length > 0) continue;
-                server = candidate;
-                workshop = Path.Combine(lib, "steamapps", "workshop");
-            }
-        }
+        var server = FindServerExecutables(libraries).FirstOrDefault() ?? "";
+        var workshop = server.Length > 0 ? Path.Combine(Directory.GetParent(Path.GetDirectoryName(Path.GetDirectoryName(server)!)!)!.Parent!.FullName, "workshop") : "";
         var standalone = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SakuraCamp", "tools", "frpc.exe");
         var frpc = File.Exists(standalone) ? standalone : "";
         return (server, workshop, frpc);

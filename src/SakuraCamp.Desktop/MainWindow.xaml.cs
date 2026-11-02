@@ -62,7 +62,9 @@ public partial class MainWindow : Window
     {
         settings = store.Load(); var found = await Task.Run(Discovery.Installation);
         RootPath.Text = settings.SaveRoot.Length > 0 ? settings.SaveRoot : Discovery.DefaultSaveRoot;
-        ServerPath.Text = settings.ServerExe.Length > 0 ? settings.ServerExe : found.Server;
+        ServerPath.Text = ServerLocations.Recover(settings.ServerExe, settings.ServerHistory, Discovery.ServerExecutables());
+        if (ServerPath.Text.Length > 0 && !ServerPath.Text.Equals(settings.ServerExe, StringComparison.OrdinalIgnoreCase))
+            AppendLog("[服务端路径] 已保存的路径失效，已恢复本机已有服务端：" + ServerPath.Text);
         WorkshopPath.Text = settings.WorkshopPath.Length > 0 ? settings.WorkshopPath : found.Workshop;
         FrpcPath.Text = settings.FrpcExe.Length > 0 ? settings.FrpcExe : found.Frpc;
         if (FrpcPath.Text.Length > 0 && FrpcInstaller.IsLauncherCompanion(FrpcPath.Text))
@@ -82,7 +84,7 @@ public partial class MainWindow : Window
         await modRefreshTask;
         Persist(); StatusText.Text = worlds.Count > 0 ? "已读取本地世界。在联机设置中保存密钥与节点后即可开服。" : "请在游戏中创建世界并退出，或点击导入存档。"; UpdateControls();
     }
-    private void Persist() { settings.SaveRoot = RootPath.Text.Trim(); settings.ServerExe = ServerPath.Text.Trim(); settings.WorkshopPath = WorkshopPath.Text.Trim(); settings.FrpcExe = FrpcPath.Text.Trim(); if (CurrentWorld is not null) settings.LastWorld = CurrentWorld.Path; store.Save(settings); }
+    private void Persist() { settings.SaveRoot = RootPath.Text.Trim(); ServerLocations.Remember(settings, settings.ServerExe); settings.ServerExe = ServerPath.Text.Trim(); ServerLocations.Remember(settings, settings.ServerExe); settings.WorkshopPath = WorkshopPath.Text.Trim(); settings.FrpcExe = FrpcPath.Text.Trim(); if (CurrentWorld is not null) settings.LastWorld = CurrentWorld.Path; store.Save(settings); }
     private void SaveProfile()
     {
         var world = RequireWorld();
@@ -364,7 +366,7 @@ public partial class MainWindow : Window
         await Task.CompletedTask;
     });
     private async void SaveProfile_Click(object sender, RoutedEventArgs e) => await Guard(() => { _ = BuildPlan(); SaveProfile(); StatusText.Text = "已保存此世界的联机方案。"; return Task.CompletedTask; });
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); Persist(); await ScanAsync(); });
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); await RecoverServerPathAsync(); Persist(); await ScanAsync(); });
     private async void Import_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); var dialog = new OpenFolderDialog { Title = "选择包含 cluster.ini 的世界文件夹" }; if (dialog.ShowDialog() != true) return; var imported = Discovery.ReadWorld(dialog.FolderName); if (!Directory.Exists(Path.Combine(imported.Path, "Master"))) throw new InvalidOperationException("请选择含 Master 文件夹的本地世界。"); RootPath.Text = Directory.GetParent(imported.Path)!.FullName; await ScanAsync(imported.Path); });
     private async void SaveWorld_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); var world = RequireWorld(); var password = WorldPassword.Password; var token = KleiToken.Password.Trim(); if (token.Length > 0 && !LaunchPlan.IsToken(token)) throw new InvalidOperationException("请粘贴完整的 pds- 开头的 Klei 独立服务器令牌。"); var iniPath = Path.Combine(world.Path, "cluster.ini"); var ini = IniDocument.Load(iniPath); var backup = await Task.Run(() => WorldFiles.Backup(world.Path, store.BackupRoot)); ini.Set("NETWORK", "cluster_password", password); ini.Save(iniPath); if (token.Length > 0) AtomicFile.Write(Path.Combine(world.Path, "cluster_token.txt"), token); KleiToken.Clear(); AppendLog("世界设置已保存，备份：" + backup); await ScanAsync(world.Path); });
     private async void Backup_Click(object sender, RoutedEventArgs e) => await Guard(async () => { RequireIdle(); var source = RequireWorld().Path; var path = await Task.Run(() => WorldFiles.Backup(source, store.BackupRoot)); AppendLog("完整备份：" + path); StatusText.Text = "备份完成。"; });
@@ -430,7 +432,13 @@ public partial class MainWindow : Window
 
     private void BrowseRoot_Click(object sender, RoutedEventArgs e) => PickFolder(RootPath, "选择 DoNotStarveTogether 存档目录");
     private void BrowseWorkshop_Click(object sender, RoutedEventArgs e) => PickFolder(WorkshopPath, "选择 steamapps\\workshop 目录");
-    private void BrowseServer_Click(object sender, RoutedEventArgs e) => PickExe(ServerPath, "选择饥荒独立服务器程序");
+    private async void BrowseServer_Click(object sender, RoutedEventArgs e) => await Guard(() =>
+    {
+        RequireIdle();
+        PickExe(ServerPath, "选择饥荒独立服务器程序");
+        Persist();
+        return Task.CompletedTask;
+    });
     private void BrowseFrpc_Click(object sender, RoutedEventArgs e) => PickExe(FrpcPath, "选择樱花官方 frpc.exe");
     private async Task EnsureFrpcAsync(bool forceDownload = false)
     {

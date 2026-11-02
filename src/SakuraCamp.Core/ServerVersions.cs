@@ -4,7 +4,11 @@ using System.Text.RegularExpressions;
 
 namespace SakuraCamp.Core;
 
-public sealed record ServerInstallation(string Executable, string Root, long? Version, string AppId, long? SteamBuild, string Branch, bool Complete);
+public sealed record ServerInstallation(string Executable, string Root, long? Version, string AppId, long? SteamBuild, string Branch, bool Complete)
+{
+    public string SteamManifest { get; init; } = "";
+    public bool ManagedBySteam => SteamManifest.Length > 0;
+}
 public sealed record ShardVersion(string Shard, long? GeneratedVersion, string Snapshot);
 public sealed record ServerVersionCheck(ServerInstallation Server, ServerInstallation? Client, IReadOnlyList<ShardVersion> Shards)
 {
@@ -49,11 +53,15 @@ public static class ServerVersions
                 var branch = Field(content, "BetaKey");
                 var complete = Field(content, "StateFlags") == "4";
                 return new(full, root, version, app, long.TryParse(Field(content, "buildid"), out var build) && build > 0 ? build : null,
-                    branch.Length == 0 ? "public" : branch, complete && File.Exists(full));
+                    branch.Length == 0 ? "public" : branch, complete && File.Exists(full))
+                { SteamManifest = Path.GetDirectoryName(manifest) == library ? manifest : "" };
             }
         }
-        // An unmanaged folder has no trusted Steam build identity; it must be repaired before launch.
-        return new(full, root, version, "343050", null, "public", false);
+        // A missing manifest must not turn a game installation into a standalone update target.
+        var game = File.Exists(Path.Combine(root, "bin64", "dontstarve_steam_x64.exe")) ||
+            File.Exists(Path.Combine(root, "bin", "dontstarve_steam.exe")) ||
+            Path.GetFileName(root).Equals("Don't Starve Together", StringComparison.OrdinalIgnoreCase);
+        return new(full, root, version, game ? "322330" : "343050", null, "public", false);
     }
 
     public static ServerVersionCheck Inspect(WorldInfo world, string executable, IEnumerable<string> clientExecutables)

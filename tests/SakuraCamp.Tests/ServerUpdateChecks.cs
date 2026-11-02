@@ -77,8 +77,8 @@ internal static class ServerUpdateChecks
         var checkOnlyResult = await updater.CheckAsync(world, latest, [client], logs.Add);
         check(checkOnlyResult.Server.Executable == latest && backend.Updates == 0, "successful check-only preserves selected server path and skips update backend");
         var updated = await updater.EnsureAsync(world, old, [client], managed, false, logs.Add);
-        check(backend.Updates == 1 && updated.Server.Root == managed && updated.Server.Version == 200, "outdated server is automatically replaced by verified managed server selection");
-        check(File.ReadAllBytes(old).SequenceEqual(originalBytes) && ServerVersions.Installation(old).Version == 100, "update never overwrites third party server deployment");
+        check(backend.Updates == 1 && updated.Server.Root == oldRoot && updated.Server.Version == 200, "outdated standalone server is updated in its original directory");
+        check(File.ReadAllBytes(old).SequenceEqual(originalBytes) && !Directory.Exists(managed), "standalone update preserves selected executable path and does not install a second copy");
         backend.Current = true;
         await updater.EnsureAsync(world, updated.Server.Executable, [client], managed, false, logs.Add);
         check(backend.Updates == 1, "current verified server is reused without redownloading");
@@ -102,9 +102,77 @@ internal static class ServerUpdateChecks
         Install(Path.GetDirectoryName(Path.GetDirectoryName(client)!)!, 200, "322330", "updatebeta");
         Reject(() => ServerVersions.RequireReadable(ServerVersions.Inspect(world, latest, [client])), "test branch cannot be silently replaced with public release");
         Install(Path.GetDirectoryName(Path.GetDirectoryName(client)!)!, 200, "322330");
-        var gameUpdate = new ServerUpdateService(new Backend { Version = 200 });
-        var migrated = await gameUpdate.EnsureAsync(world, client, [client], managed, true, logs.Add);
-        check(migrated.Server.AppId == "343050" && ServerVersions.Installation(client).AppId == "322330", "repair of bundled game server installs isolated dedicated server and preserves game identity");
+        var gameBackend = new Backend { Version = 200 };
+        var gameUpdate = new ServerUpdateService(gameBackend);
+        await RejectAsync(() => gameUpdate.EnsureAsync(world, client, [client], managed, true, logs.Add), "Steam game update remains pending and cannot authorize world launch");
+        check(gameBackend.SteamRequests == 1 && gameBackend.Updates == 0 && ServerVersions.Installation(client).AppId == "322330", "bundled game server delegates original installation update to Steam without downloading a second copy");
+
+        var settings = new AppSettings();
+        ServerLocations.Remember(settings, old); ServerLocations.Remember(settings, client); ServerLocations.Remember(settings, old);
+        var deleted = Path.Combine(root, "deleted-server", "bin64", ServerVersions.ExecutableName);
+        check(settings.ServerHistory.SequenceEqual(new[] { old, client }), "server history deduplicates paths and remembers most recent existing selection");
+        check(ServerLocations.Recover(deleted, settings.ServerHistory, []) == old, "deleted selected server falls back to an existing historical path");
+        check(ServerLocations.Recover(deleted, [], [client]) == client, "legacy settings without history recover original Steam server after new copy is deleted");
+        check(ServerLocations.Recover(old, [client], [client]) == old, "valid selected server has priority over history and Steam discovery");
+        check(ServerLocations.Recover(deleted, [deleted], []) == "", "no surviving installation returns no server rather than a guessed download path");
+        var settingsStore = new SettingsStore(Path.Combine(root, "settings"));
+        settingsStore.Save(settings);
+        check(settingsStore.Load().ServerHistory.SequenceEqual(settings.ServerHistory), "server location history survives settings round trip");
+        var library = Path.Combine(root, "library");
+        File.WriteAllText(Path.Combine(library, "steamapps", "appmanifest_322330.acf"), "\"AppState\" { \"appid\" \"322330\" \"installdir\" \"Don't Starve Together\" \"StateFlags\" \"4\" \"buildid\" \"123\" }");
+        check(Discovery.FindServerExecutables([library]).Contains(client) && ServerVersions.Installation(client).ManagedBySteam, "Steam library discovery recovers bundled dedicated executable and its original app owner");
+        var dedicated = Install(Path.Combine(library, "steamapps", "common", "Custom Dedicated"), 200);
+        File.WriteAllText(Path.Combine(library, "steamapps", "appmanifest_343050.acf"), "\"AppState\" { \"appid\" \"343050\" \"installdir\" \"Custom Dedicated\" \"StateFlags\" \"4\" \"buildid\" \"123\" }");
+        check(Discovery.FindServerExecutables([library]).Contains(dedicated), "Steam discovery honors dedicated server manifest installation directory");
+        await RejectAsync(() => gameUpdate.EnsureAsync(world, dedicated, [client], managed, true, logs.Add), "Steam-owned dedicated repair remains pending until Steam finishes");
+        check(gameBackend.SteamRequests == 2 && gameBackend.Updates == 0, "Steam-owned dedicated repair never invokes standalone install backend");
+        Reject(() => ServerLocations.ValidateNewInstallDirectory(worldPath, worldPath), "new install cannot overwrite world directory");
+        Reject(() => ServerLocations.ValidateNewInstallDirectory(root, worldPath), "new install cannot overwrite an ancestor containing saves");
+        Reject(() => ServerLocations.ValidateNewInstallDirectory(oldRoot, worldPath), "new install cannot overwrite a populated directory");
+        await RejectAsync(() => updater.EnsureAsync(world, "", [client], "", false, logs.Add), "missing installation needs an explicitly chosen destination");
+        var unregistered = Install(Path.Combine(root, "unregistered-game"), 200, "322330");
+        File.Delete(Path.Combine(root, "unregistered-game", "steamapps", "appmanifest_322330.acf"));
+        File.WriteAllText(Path.Combine(root, "unregistered-game", "bin64", "dontstarve_steam_x64.exe"), "fixture client");
+        check(ServerVersions.Installation(unregistered).AppId == "322330" && !ServerVersions.Installation(unregistered).ManagedBySteam,
+            "game files without a manifest cannot be mistaken for a standalone update target");
+        await RejectAsync(() => gameUpdate.EnsureAsync(world, unregistered, [], managed, true, logs.Add), "unregistered game repair is blocked instead of installing dedicated server over game files");
+        check(gameBackend.Updates == 0, "game installation lacking Steam identity is never overwritten by standalone updater");
+        gameBackend.CompleteSteam = true;
+        var checksBeforeSteam = gameBackend.Checks;
+        var steamCompleted = await gameUpdate.EnsureAsync(world, dedicated, [client], managed, true, logs.Add);
+        check(steamCompleted.Server.Executable == dedicated && gameBackend.Checks > checksBeforeSteam && gameBackend.Updates == 0,
+            "successful Steam completion rechecks actual latest build and compatibility before accepting existing server");
+        gameBackend.Current = false;
+        await RejectAsync(() => gameUpdate.EnsureAsync(world, dedicated, [client], managed, true, logs.Add), "Steam task success cannot pass if server still fails latest-build check");
+        gameBackend.Current = true;
+
+        var steamLog = Path.Combine(root, "steam-content.log");
+        const string steamStart = "AppID 322330 App update changed : Running Update,Verifying Installed,\n";
+        const string steamStop = "AppID 322330 App update changed : None\n";
+        const string steamSuccess = "AppID 322330 scheduler finished : staying in schedule (result No Error, state 0xc)\n";
+        File.WriteAllText(steamLog, steamStart + steamStop + steamSuccess);
+        var monitor = new SteamValidationMonitor(steamLog, "322330");
+        check(!monitor.Poll(), "Steam monitor ignores validation success that predates this request");
+        File.AppendAllText(steamLog, (steamStart + steamStop + steamSuccess).Replace("322330", "343050"));
+        check(!monitor.Poll(), "Steam monitor ignores completion of another app");
+        File.AppendAllText(steamLog, "AppID 322330 Workshop update changed : Running Update,Verifying Installed,\nAppID 322330 Workshop update changed : None\n" + steamSuccess);
+        check(!monitor.Poll(), "Workshop validation alone never establishes game or dedicated server file validation");
+        File.AppendAllText(steamLog, steamStart);
+        check(!monitor.Poll(), "Steam validation start cannot prematurely report completion");
+        File.AppendAllText(steamLog, steamStop);
+        check(!monitor.Poll(), "Steam stopping alone cannot establish a successful update");
+        File.AppendAllText(steamLog, steamSuccess.TrimEnd('\n'));
+        check(!monitor.Poll(), "incomplete Steam log line waits for the full result");
+        File.AppendAllText(steamLog, "\n");
+        check(monitor.Poll(), "fresh application validation and explicit Steam success establish completion");
+        var failedMonitor = new SteamValidationMonitor(steamLog, "322330");
+        File.AppendAllText(steamLog, steamStart + steamStop + steamSuccess.Replace("No Error", "Disk Write Failure"));
+        Reject(() => failedMonitor.Poll(), "failed Steam task cannot be mistaken for successful validation");
+        var cancelMonitor = new SteamValidationMonitor(steamLog, "322330");
+        await RejectAsync(() => cancelMonitor.WaitAsync(client, cancel.Token), "cancelling Steam wait stops monitoring without treating external task as finished");
+        var rotatedMonitor = new SteamValidationMonitor(steamLog, "322330");
+        File.WriteAllText(steamLog, "rotated\n");
+        Reject(() => rotatedMonitor.Poll(), "Steam log rotation cannot reuse old completion evidence");
 
         var handler = new ApiHandler("{\"response\":{\"success\":true,\"up_to_date\":true}}");
         using var http = new HttpClient(handler);
@@ -133,6 +201,8 @@ internal static class ServerUpdateChecks
         check(true, "SteamCMD runner accepts successful download signal and exit code");
         await RejectAsync(() => SteamServerUpdater.RunAsync(Shell("exit 0"), logs.Add, TimeSpan.FromSeconds(15), default), "SteamCMD exit zero without success signal is not accepted");
         await RejectAsync(() => SteamServerUpdater.RunAsync(Shell("Write-Output 'ERROR! download failed'; exit 1"), logs.Add, TimeSpan.FromSeconds(15), default), "SteamCMD error and nonzero exit block startup");
+        try { await SteamServerUpdater.RunAsync(Shell("Write-Output \"ERROR! Failed to install app '343050' (Missing configuration)\"; exit 8"), logs.Add, TimeSpan.FromSeconds(15), default); check(false, "SteamCMD missing configuration must fail"); }
+        catch (SteamCommandException error) { check(error.MissingConfiguration && error.Message.Contains("343050") && error.Message.Contains("Missing configuration"), "SteamCMD failure retains actual configuration error and marks bounded retry condition"); }
         using var runCancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         await RejectAsync(() => SteamServerUpdater.RunAsync(Shell("Start-Sleep -Seconds 60"), logs.Add, TimeSpan.FromSeconds(10), runCancel.Token), "cancelled SteamCMD child is stopped before caller proceeds");
         var bootstrapMarker = Path.Combine(root, "bootstrap-marker").Replace("'", "''");
@@ -185,8 +255,14 @@ internal static class ServerUpdateChecks
     }
     private sealed class Backend : IServerUpdateBackend
     {
-        public bool Current = true, FailUpdate; public long Version; public int Updates;
-        public Task<bool> IsCurrentAsync(ServerInstallation installation, CancellationToken token) { token.ThrowIfCancellationRequested(); return Task.FromResult(Current); }
+        public bool Current = true, FailUpdate, CompleteSteam; public long Version; public int Updates, SteamRequests, Checks;
+        public Task RequestSteamUpdateAsync(ServerInstallation installation, Action<string> progress, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested(); SteamRequests++;
+            if (CompleteSteam) return Task.CompletedTask;
+            throw new InvalidOperationException("fixture Steam update pending");
+        }
+        public Task<bool> IsCurrentAsync(ServerInstallation installation, CancellationToken token) { token.ThrowIfCancellationRequested(); Checks++; return Task.FromResult(Current); }
         public Task UpdateAsync(string directory, Action<string> progress, CancellationToken token)
         {
             token.ThrowIfCancellationRequested(); Updates++;

@@ -11,6 +11,13 @@ public interface IServerUpdateBackend
 {
     Task<bool> IsCurrentAsync(ServerInstallation installation, CancellationToken cancellationToken);
     Task UpdateAsync(string directory, Action<string> progress, CancellationToken cancellationToken);
+    Task RequestSteamUpdateAsync(ServerInstallation installation, Action<string> progress, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("请在 Steam 中更新并验证当前安装后重试，不会创建另一份服务端。");
+}
+
+public sealed class SteamCommandException(int code, string detail) : InvalidOperationException($"SteamCMD 未成功完成服务端更新（退出代码 {code}）。\n{detail}\n本次未开服，原服务端路径保持不变。")
+{
+    public bool MissingConfiguration => detail.Contains("Missing configuration", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class ServerUpdateService(IServerUpdateBackend backend)
@@ -30,25 +37,34 @@ public sealed class ServerUpdateService(IServerUpdateBackend backend)
     }
 
     public async Task<ServerVersionCheck> EnsureAsync(WorldInfo world, string executable, IEnumerable<string> clients,
-        string managedDirectory, bool repair, Action<string> progress, CancellationToken cancellationToken = default)
+        string installDirectory, bool repair, Action<string> progress, CancellationToken cancellationToken = default)
     {
         WorldFiles.RequireStopped();
         var clientPaths = clients.ToArray();
         var check = ServerVersions.Inspect(world, executable, clientPaths);
         progress("[版本检查] " + check.Summary);
-        ServerVersions.RequireReadable(check);
+        // Steam is responsible for completing an interrupted update of its game installation.
+        ServerVersions.RequireReadable(check.Server.AppId == "322330" && check.Client is { Complete: false }
+            ? check with { Client = check.Client with { Complete = true } } : check);
         var current = !repair && check.Server.Complete && check.Server.SteamBuild.HasValue && check.Server.Version.HasValue &&
             await backend.IsCurrentAsync(check.Server, cancellationToken);
         var tooOld = check.Server.Version is null || check.Server.Version < check.MinimumVersion ||
             check.Client?.Version is { } client && check.Server.Version < client;
         if (!current || tooOld || repair)
         {
-            // Always update an isolated server. Never run app_update 343050 over a 322330 game directory
-            // or overwrite third-party deployments (including their Mods and scripts).
-            progress("[版本检查] " + (repair ? "正在更新并校验独立服务端文件…" : "服务端需要更新或安装来源无法确认，正在准备独立服务端…"));
+            if (check.Server.ManagedBySteam || check.Server.AppId == "322330")
+            {
+                progress("[服务端更新] 使用 Steam 更新并验证当前安装，原目录：" + check.Server.Root);
+                await backend.RequestSteamUpdateAsync(check.Server, progress, cancellationToken);
+                // Steam completion is only a prerequisite; verify the actual build and world again.
+                return await CheckAsync(world, executable, clientPaths, progress, cancellationToken);
+            }
+            var target = File.Exists(check.Server.Executable) ? check.Server.Root : installDirectory;
+            if (string.IsNullOrWhiteSpace(target)) throw new InvalidOperationException("没有可用服务端。请在文件目录页选择已有程序，或选择空目录安装；不会自动下载到 C 盘。");
+            progress("[服务端更新] " + (File.Exists(check.Server.Executable) ? "正在原目录更新并校验：" : "正在安装到你选择的目录：") + target);
             WorldFiles.RequireStopped();
-            await backend.UpdateAsync(managedDirectory, progress, cancellationToken);
-            var updated = Path.Combine(managedDirectory, "bin64", ServerVersions.ExecutableName);
+            await backend.UpdateAsync(target, progress, cancellationToken);
+            var updated = Path.Combine(target, "bin64", ServerVersions.ExecutableName);
             check = ServerVersions.Inspect(world, updated, clientPaths);
             progress("[版本检查] 更新后：" + check.Summary);
             // A zero process exit code alone is insufficient: verify actual files and Steam build.
@@ -67,6 +83,20 @@ public sealed class ServerUpdateService(IServerUpdateBackend backend)
 
 public sealed class SteamServerUpdater(HttpClient http, string toolsDirectory, Action<string>? diagnostics = null) : IServerUpdateBackend
 {
+    public async Task RequestSteamUpdateAsync(ServerInstallation installation, Action<string> progress, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WorldFiles.RequireStopped();
+        if (!installation.ManagedBySteam) throw new InvalidOperationException("未找到当前安装的 Steam 库记录，请通过 Steam 更新并验证游戏后重新选择程序。不会用独立服务端覆盖游戏文件。");
+        if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("通过 Steam 更新仅支持 Windows。");
+        var steam = Discovery.SteamLibraries().FirstOrDefault(root => File.Exists(Path.Combine(root, "steam.exe")))
+            ?? throw new InvalidOperationException("未找到 Steam 客户端，请在 Steam 更新验证后重新检查服务端版本。");
+        var monitor = new SteamValidationMonitor(Path.Combine(steam, "logs", "content_log.txt"), installation.AppId);
+        using var opened = Process.Start(new ProcessStartInfo($"steam://validate/{installation.AppId}") { UseShellExecute = true });
+        progress("[服务端更新] 已打开 Steam 的原安装验证任务：" + installation.Root);
+        await monitor.WaitAsync(installation.Executable, cancellationToken);
+        progress("[服务端更新] Steam 更新与文件验证已完成，正在重新核对最新版本和世界兼容性。");
+    }
     public async Task<bool> IsCurrentAsync(ServerInstallation installation, CancellationToken cancellationToken)
     {
         if (installation.SteamBuild is null || installation.Branch != "public") return false;
@@ -151,14 +181,21 @@ public sealed class SteamServerUpdater(HttpClient http, string toolsDirectory, A
         if (games.Length > 0)
             throw new InvalidOperationException("请先退出饥荒游戏，再更新服务端，避免游戏正在保存或切换世界。");
         Directory.CreateDirectory(toolsDirectory);
-        // Exclusive lock covers bootstrap, self-update and the app update, including other app instances.
-        using var updateLock = AcquireLock();
-        var steamcmd = await EnsureSteamCmdAsync(cancellationToken);
-        Directory.CreateDirectory(directory);
-        var info = WorldFiles.HiddenProcess(steamcmd);
-        foreach (var argument in new[] { "+force_install_dir", Path.GetFullPath(directory), "+login", "anonymous", "+app_update", "343050", "validate", "+quit" }) info.ArgumentList.Add(argument);
-        progress("[服务端更新] 通过 Valve 官方 SteamCMD 下载、更新并校验正式版；首次下载可能需要数 GB。原服务端和世界存档保持原样。");
-        await RunAsync(info, progress, TimeSpan.FromMinutes(30), cancellationToken);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            // Prime app metadata in a separate completed session, including a fresh bootstrap.
+            // Missing configuration can occur on a clean SteamCMD when app_update runs first.
+            await LatestDedicatedBuildAsync(cancellationToken);
+            using var updateLock = AcquireLock();
+            var steamcmd = await EnsureSteamCmdAsync(cancellationToken);
+            Directory.CreateDirectory(directory);
+            var info = WorldFiles.HiddenProcess(steamcmd);
+            foreach (var argument in new[] { "+force_install_dir", Path.GetFullPath(directory), "+login", "anonymous", "+app_update", "343050", "validate", "+quit" }) info.ArgumentList.Add(argument);
+            progress("[服务端更新] 通过 Valve 官方 SteamCMD 更新并校验目录：" + directory);
+            try { await RunAsync(info, progress, TimeSpan.FromMinutes(30), cancellationToken); return; }
+            catch (SteamCommandException error) when (attempt == 0 && error.MissingConfiguration)
+            { progress("[服务端更新] Steam 尚未取得应用配置，重新查询应用信息后重试一次…"); }
+        }
     }
 
     private FileStream AcquireLock()
@@ -226,7 +263,7 @@ public sealed class SteamServerUpdater(HttpClient http, string toolsDirectory, A
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动 SteamCMD。");
-        var success = 0; var error = 0; var bootstrapped = 0;
+        var success = 0; var error = 0; var bootstrapped = 0; var errorDetail = "未收到服务端安装成功信号，请查看完整日志。";
         async Task ReadAsync(StreamReader reader)
         {
             while (await reader.ReadLineAsync() is { } line)
@@ -234,7 +271,8 @@ public sealed class SteamServerUpdater(HttpClient http, string toolsDirectory, A
                 progress("[SteamCMD] " + line);
                 if (line.Contains("Success! App '343050' fully installed.", StringComparison.OrdinalIgnoreCase)) Interlocked.Exchange(ref success, 1);
                 if (line.Contains("Update complete, launching", StringComparison.OrdinalIgnoreCase)) Interlocked.Exchange(ref bootstrapped, 1);
-                if (line.Contains("ERROR!", StringComparison.OrdinalIgnoreCase) || line.Contains("FAILED", StringComparison.OrdinalIgnoreCase)) Interlocked.Exchange(ref error, 1);
+                if (line.Contains("ERROR!", StringComparison.OrdinalIgnoreCase) || line.Contains("FAILED", StringComparison.OrdinalIgnoreCase))
+                { Interlocked.Exchange(ref error, 1); errorDetail = line; }
             }
         }
         var outputs = Task.WhenAll(ReadAsync(process.StandardOutput), ReadAsync(process.StandardError));
@@ -258,6 +296,6 @@ public sealed class SteamServerUpdater(HttpClient http, string toolsDirectory, A
             return;
         }
         if (process.ExitCode != 0 || success == 0 || error != 0)
-            throw new InvalidOperationException($"SteamCMD 未成功完成服务端更新（退出代码 {process.ExitCode}），已阻止开服。请在日志中查看下载或磁盘错误，再重试更新。");
+            throw new SteamCommandException(process.ExitCode, errorDetail);
     }
 }

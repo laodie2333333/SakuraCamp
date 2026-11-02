@@ -88,6 +88,7 @@ public sealed class AppSettings
 {
     public string SaveRoot { get; set; } = "";
     public string ServerExe { get; set; } = "";
+    public List<string> ServerHistory { get; set; } = [];
     public string WorkshopPath { get; set; } = "";
     public string FrpcExe { get; set; } = "";
     public string LastWorld { get; set; } = "";
