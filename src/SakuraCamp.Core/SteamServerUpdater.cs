@@ -15,6 +15,20 @@ public interface IServerUpdateBackend
 
 public sealed class ServerUpdateService(IServerUpdateBackend backend)
 {
+    public async Task<ServerVersionCheck> CheckAsync(WorldInfo world, string executable, IEnumerable<string> clients,
+        Action<string> progress, CancellationToken cancellationToken = default)
+    {
+        WorldFiles.RequireStopped();
+        var check = ServerVersions.Inspect(world, executable, clients);
+        progress("[版本检查] " + check.Summary);
+        ServerVersions.RequireCompatible(check);
+        if (check.Server.SteamBuild is null || !await backend.IsCurrentAsync(check.Server, cancellationToken))
+            throw new InvalidOperationException("服务端需要更新或无法确认是最新正式版。请点击“更新并校验服务端”；检查版本不会自动更新服务端文件。");
+        cancellationToken.ThrowIfCancellationRequested();
+        progress("[版本检查] 检查通过，未更新服务端文件。");
+        return check;
+    }
+
     public async Task<ServerVersionCheck> EnsureAsync(WorldInfo world, string executable, IEnumerable<string> clients,
         string managedDirectory, bool repair, Action<string> progress, CancellationToken cancellationToken = default)
     {

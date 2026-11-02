@@ -8,7 +8,7 @@ namespace SakuraCamp.Desktop;
 public partial class MainWindow
 {
     private CancellationTokenSource? serverUpdateCancellation;
-    private async void CheckServerVersion_Click(object sender, RoutedEventArgs e) => await Guard(() => EnsureServerVersionAsync(false));
+    private async void CheckServerVersion_Click(object sender, RoutedEventArgs e) => await Guard(() => EnsureServerVersionAsync(false, checkOnly: true));
     private async void RepairServer_Click(object sender, RoutedEventArgs e) => await Guard(() => EnsureServerVersionAsync(true));
     private void CancelServerUpdate_Click(object sender, RoutedEventArgs e)
     {
@@ -16,7 +16,7 @@ public partial class MainWindow
         CancelServerUpdateButton.IsEnabled = false;
         StatusText.Text = "正在停止版本检查或更新，本次不会继续开服…";
     }
-    private async Task EnsureServerVersionAsync(bool repair)
+    private async Task EnsureServerVersionAsync(bool repair, bool checkOnly = false)
     {
         RequireIdle();
         var world = RequireWorld();
@@ -41,11 +41,15 @@ public partial class MainWindow
                     Dispatcher.BeginInvoke(() => ServerVersionHint.Text = StatusText.Text = safe);
             }
             var updater = new ServerUpdateService(new SteamServerUpdater(http, Path.Combine(runtime, "steamcmd"), Progress));
-            var result = await Task.Run(() => updater.EnsureAsync(world, executable, Discovery.GameExecutables(),
-                Path.Combine(runtime, "dst-server"), repair, Progress, cancellation.Token));
-            ServerPath.Text = result.Server.Executable;
-            Persist();
-            if (!result.Server.Executable.Equals(executable, StringComparison.OrdinalIgnoreCase)) await RefreshModManagerAsync(world);
+            var result = await Task.Run(() => checkOnly
+                ? updater.CheckAsync(world, executable, Discovery.GameExecutables(), Progress, cancellation.Token)
+                : updater.EnsureAsync(world, executable, Discovery.GameExecutables(), Path.Combine(runtime, "dst-server"), repair, Progress, cancellation.Token));
+            if (!checkOnly)
+            {
+                ServerPath.Text = result.Server.Executable;
+                Persist();
+                if (!result.Server.Executable.Equals(executable, StringComparison.OrdinalIgnoreCase)) await RefreshModManagerAsync(world);
+            }
             ServerVersionHint.Text = result.Summary + " · 已通过联网核验";
             StatusText.Text = "服务端版本检查通过，可继续开服。";
         }
@@ -56,7 +60,7 @@ public partial class MainWindow
         }
         catch
         {
-            ServerVersionHint.Text = "版本检查未通过，已阻止本次开服。详细原因见日志。";
+            ServerVersionHint.Text = checkOnly ? "版本检查未通过，未更新服务端文件。详细原因见日志。" : "版本检查未通过，已阻止本次开服。详细原因见日志。";
             throw;
         }
         finally

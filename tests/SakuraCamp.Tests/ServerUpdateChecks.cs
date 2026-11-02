@@ -68,6 +68,14 @@ internal static class ServerUpdateChecks
         var backend = new Backend { Version = 200 };
         var updater = new ServerUpdateService(backend); var logs = new List<string>();
         var originalBytes = File.ReadAllBytes(old);
+        await RejectAsync(() => updater.CheckAsync(world, old, [client], logs.Add), "check-only reports incompatible version without updating server");
+        check(backend.Updates == 0 && !Directory.Exists(managed) && ServerVersions.Installation(old).Version == 100, "check-only neither installs dedicated server nor overwrites selected installation");
+        backend.Current = false;
+        await RejectAsync(() => updater.CheckAsync(world, latest, [client], logs.Add), "check-only reports outdated Steam build without running update");
+        check(backend.Updates == 0, "check-only never downloads a server when Steam reports an old build");
+        backend.Current = true;
+        var checkOnlyResult = await updater.CheckAsync(world, latest, [client], logs.Add);
+        check(checkOnlyResult.Server.Executable == latest && backend.Updates == 0, "successful check-only preserves selected server path and skips update backend");
         var updated = await updater.EnsureAsync(world, old, [client], managed, false, logs.Add);
         check(backend.Updates == 1 && updated.Server.Root == managed && updated.Server.Version == 200, "outdated server is automatically replaced by verified managed server selection");
         check(File.ReadAllBytes(old).SequenceEqual(originalBytes) && ServerVersions.Installation(old).Version == 100, "update never overwrites third party server deployment");
