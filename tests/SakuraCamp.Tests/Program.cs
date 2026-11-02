@@ -206,6 +206,7 @@ Check(emptyRecovery.NodeUnlocked && !emptyRecovery.ConfirmationRequired && empty
 await NodeChangeChecks.Run(Check);
 WorldRuleChecks.Run(workspace, Check);
 await ServerUpdateChecks.Run(workspace, Check);
+WorldDeletionChecks.Run(workspace, Check);
 Console.WriteLine($"ALL {passed} CHECKS PASSED. Fixtures: {workspace}");
 
 sealed class FixtureHandler(Func<HttpRequestMessage, string> respond) : HttpMessageHandler

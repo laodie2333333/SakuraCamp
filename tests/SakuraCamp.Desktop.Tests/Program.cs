@@ -154,10 +154,89 @@ internal static class Program
         Check(versionHint.IsVisible && versionHint.ActualWidth > 200 && versionHint.ActualHeight > 0, "version and update panel is visible in real window file settings page");
         var screenshot = new RenderTargetBitmap((int)startup.ActualWidth, (int)startup.ActualHeight, 96, 96, PixelFormats.Pbgra32);
         screenshot.Render(startup);
-        var screenshots = Path.Combine(Directory.GetCurrentDirectory(), "work", "screenshots-0.3.6"); Directory.CreateDirectory(screenshots);
+        var screenshots = Path.Combine(Directory.GetCurrentDirectory(), "work", "screenshots-0.3.7"); Directory.CreateDirectory(screenshots);
         var pngEncoder = new PngBitmapEncoder(); pngEncoder.Frames.Add(BitmapFrame.Create(screenshot));
         using (var imageFile = File.Create(Path.Combine(screenshots, "server-updates.png"))) pngEncoder.Save(imageFile);
+        await VerifyWorldDeletionAsync(startup, worlds, screenshots);
         await (Task)typeof(MainWindow).GetMethod("FinishLogsAsync", flags)!.Invoke(startup, null)!;
         startup.Close();
+    }
+
+    private static IEnumerable<T> Children<T>(System.Windows.DependencyObject parent) where T : System.Windows.DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T match) yield return match;
+            foreach (var descendant in Children<T>(child)) yield return descendant;
+        }
+    }
+
+    private static async Task VerifyWorldDeletionAsync(MainWindow window, string worlds, string screenshots)
+    {
+        WorldInfo Create(string folder, string name)
+        {
+            var path = Path.Combine(worlds, "fixture-account", folder);
+            Directory.CreateDirectory(Path.Combine(path, "Master", "save"));
+            Directory.CreateDirectory(Path.Combine(path, "Caves", "save"));
+            File.WriteAllText(Path.Combine(path, "cluster.ini"), "[NETWORK]\ncluster_name=" + name + "\n[GAMEPLAY]\nmax_players=6\n");
+            File.WriteAllText(Path.Combine(path, "Caves", "server.ini"), "[NETWORK]\nserver_port=11000\n");
+            File.WriteAllText(Path.Combine(path, "Master", "save", "world.dat"), "precious fixture");
+            return Discovery.ReadWorld(path);
+        }
+        var kept = Create("Cluster_1", "秋日篝火 · 保留世界");
+        var deleted = Create("Cluster_2", "和朋友们一起冒险的世界");
+        var list = (ListBox)window.FindName("WorldList");
+        var overlay = (System.Windows.FrameworkElement)window.FindName("WorldDeleteOverlay");
+        var cancel = (Button)window.FindName("CancelWorldDeleteButton");
+        var confirm = (Button)window.FindName("ConfirmWorldDeleteButton");
+        var workspace = (System.Windows.FrameworkElement)window.FindName("WorkspaceSurface");
+        var tabs = (TabControl)window.FindName("Tabs"); tabs.SelectedItem = window.FindName("OverviewTab");
+        await (Task)typeof(MainWindow).GetMethod("ScanAsync", flags)!.Invoke(window, [kept.Path])!;
+        var settings = (AppSettings)typeof(MainWindow).GetField("settings", flags)!.GetValue(window)!;
+        settings.Profiles[kept.Path] = new(); settings.Profiles[deleted.Path] = new();
+        window.UpdateLayout();
+        Button Trash(string path) => Children<Button>(list).Single(b => b.Name == "DeleteWorldButton" && b.DataContext is WorldInfo world && world.Path == path);
+        bool Busy() => (bool)typeof(MainWindow).GetField("busy", flags)!.GetValue(window)!;
+        async Task Until(Func<bool> condition)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(20);
+            Check(condition(), "world deletion interaction completes within its UI deadline");
+        }
+        void Click(Button button) => button.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+        void Screenshot(string name)
+        {
+            window.UpdateLayout();
+            var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(window); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var output = File.Create(Path.Combine(screenshots, name)); encoder.Save(output);
+        }
+        Check(Children<Button>(list).Count(b => b.Name == "DeleteWorldButton") == 2 && Equals(Trash(deleted.Path).ToolTip, "删除世界"), "each real world card has a trash icon with delete-world tooltip");
+        Screenshot("world-cards.png");
+        Click(Trash(deleted.Path)); await Until(() => overlay.IsVisible);
+        Check(Directory.Exists(deleted.Path) && ((WorldInfo)list.SelectedItem).Path == kept.Path, "trash click opens confirmation without deleting or changing selected world");
+        Check(!workspace.IsEnabled && ((TextBlock)window.FindName("DeleteWorldName")).Text == deleted.Name && Children<TextBlock>(overlay).Any(t => t.Text == "删除的世界将无法恢复。"), "themed confirmation names target, warns of permanent deletion and blocks background actions");
+        Screenshot("delete-world-confirmation.png");
+        Click(cancel); await Until(() => !Busy());
+        Check(Directory.Exists(deleted.Path) && !overlay.IsVisible && workspace.IsEnabled, "cancel closes the dialog and leaves all world files intact");
+        Click(Trash(deleted.Path)); await Until(() => overlay.IsVisible);
+        Click(confirm); await Until(() => !Busy());
+        Check(!Directory.Exists(deleted.Path) && Directory.Exists(kept.Path) && list.Items.Count == 1 && ((WorldInfo)list.SelectedItem).Path == kept.Path,
+            "confirm permanently deletes only clicked world and refreshes cards while preserving selected survivor");
+        Check(!settings.Profiles.ContainsKey(deleted.Path) && settings.Profiles.ContainsKey(kept.Path), "deletion clears only the deleted world's local profile");
+        Click(Trash(kept.Path)); await Until(() => overlay.IsVisible);
+        overlay.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, System.Windows.PresentationSource.FromVisual(window)!, 0, System.Windows.Input.Key.Escape) { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent });
+        await Until(() => !Busy());
+        Check(Directory.Exists(kept.Path) && !overlay.IsVisible, "Escape cancels deletion without changing the save");
+        typeof(MainWindow).GetField("busy", flags)!.SetValue(window, true);
+        typeof(MainWindow).GetMethod("UpdateControls", flags)!.Invoke(window, null);
+        Check(!Trash(kept.Path).IsEnabled, "trash button is unavailable while another operation owns the world controls");
+        typeof(MainWindow).GetField("busy", flags)!.SetValue(window, false);
+        typeof(MainWindow).GetMethod("UpdateControls", flags)!.Invoke(window, null);
+        Click(Trash(kept.Path)); await Until(() => overlay.IsVisible);
+        Click(confirm); await Until(() => !Busy());
+        Check(!Directory.Exists(kept.Path) && list.Items.Count == 0 && list.SelectedItem is null && !((Button)window.FindName("StartButton")).IsEnabled,
+            "deleting the last world leaves an empty overview and disables world startup");
     }
 }

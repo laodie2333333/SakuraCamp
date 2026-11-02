@@ -10,6 +10,21 @@
     </WindowChrome.WindowChrome>
     <Window.Resources>
         <SolidColorBrush x:Key="Muted" Color="#A8AAAE"/>
+        <Style x:Key="WorldDeleteButton" TargetType="Button">
+            <Setter Property="Width" Value="32"/><Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="7"/><Setter Property="Margin" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="#9DAAC1"/>
+            <Setter Property="Cursor" Value="Hand"/><Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#593540"/><Setter Property="Foreground" Value="#FFA0A5"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="Background" Value="#593540"/><Setter Property="Foreground" Value="#FFA0A5"/></Trigger>
+                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#75404A"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style x:Key="CaptionButton" TargetType="Button">
             <Setter Property="Width" Value="46"/><Setter Property="Height" Value="34"/>
             <Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/>
@@ -346,7 +361,7 @@
                     <Button x:Name="MaximizeCaption" Style="{StaticResource CaptionButton}" Click="MaximizeCaption_Click" AutomationProperties.Name="最大化"><TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/></Button>
                     <Button x:Name="CloseCaption" Style="{StaticResource CloseCaptionButton}" Click="CloseCaption_Click" AutomationProperties.Name="关闭"><TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/></Button>
                 </StackPanel>
-                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
+                <TextBlock Text="Windows 本地开服  ·  预览版 0.3.7" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,17" Foreground="#8E9BB2" FontSize="11"/>
             </Grid>
         </Border>
         <Grid x:Name="WorkspaceSurface" Grid.Row="1" Margin="28,24,28,14">
@@ -387,12 +402,15 @@
                                     </Style>
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate><DataTemplate>
-                                    <StackPanel>
+                                    <Grid><StackPanel>
                                         <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="SemiBold" Foreground="#FFFFFF" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" Margin="0,0,65,10"/>
                                         <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="#BCC7DB" Margin="0,0,0,10"/>
                                         <TextBlock Text="{Binding Mode}" FontSize="11" Foreground="#F5A962"/>
                                         <TextBlock Text="{Binding Modified, StringFormat=最近修改：{0:yyyy-MM-dd HH:mm}}" FontSize="10.5" Foreground="#8F9DB5" Margin="0,10,0,0"/>
                                     </StackPanel>
+                                    <Button x:Name="DeleteWorldButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Style="{StaticResource WorldDeleteButton}" Click="DeleteWorld_Click" ToolTip="删除世界" ToolTipService.InitialShowDelay="300" AutomationProperties.Name="删除世界">
+                                        <Viewbox Width="18" Height="18"><Path Data="M 3,5 L 17,5 M 7,5 L 7,2 L 13,2 L 13,5 M 5,5 L 6,18 L 14,18 L 15,5 M 8,8 L 8,15 M 12,8 L 12,15" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Viewbox>
+                                    </Button></Grid>
                                 </DataTemplate></ListBox.ItemTemplate>
                             </ListBox>
                         </Grid>
@@ -616,6 +634,18 @@
             <Border x:Name="ModOverlayPanel" MaxWidth="900" Margin="40,36" Background="#1E2330" BorderBrush="#4A536B" BorderThickness="1" CornerRadius="16">
                 <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
                 <ContentControl x:Name="ModOverlayContent" SizeChanged="ModOverlayContent_SizeChanged" Margin="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+            </Border>
+        </Grid>
+        <Grid x:Name="WorldDeleteOverlay" Grid.RowSpan="3" Panel.ZIndex="200" Visibility="Collapsed" Background="#B8101420" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle" PreviewKeyDown="WorldDeleteOverlay_PreviewKeyDown">
+            <Border x:Name="WorldDeletePanel" Width="460" Margin="28" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#1E2330" BorderBrush="#4A536B" BorderThickness="1" CornerRadius="16" Padding="28">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,18"><Border Width="38" Height="38" Background="#4B303A" CornerRadius="10" DockPanel.Dock="Left" Margin="0,0,12,0"><TextBlock Text="!" FontSize="24" FontWeight="Bold" Foreground="#FFA0A5" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><TextBlock Text="删除世界" FontSize="21" FontWeight="SemiBold" Foreground="#F5A962" VerticalAlignment="Center"/></DockPanel>
+                    <TextBlock Text="确定删除这个世界吗？" Foreground="#E4E6EB" FontSize="14" Margin="0,0,0,12"/>
+                    <Border Background="#292F3F" CornerRadius="8" Padding="14,12" Margin="0,0,0,16"><StackPanel><TextBlock x:Name="DeleteWorldName" FontSize="16" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" TextTrimming="None" MaxHeight="110"/><TextBlock x:Name="DeleteWorldFolder" FontSize="11" Foreground="#9DAAC1" Margin="0,5,0,0"/></StackPanel></Border>
+                    <TextBlock Text="删除的世界将无法恢复。" Foreground="#FFA0A5" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <TextBlock Text="此操作会永久删除该世界的地上、洞穴及相关存档文件。" Foreground="#A8B2C7" FontSize="12" Margin="0,0,0,24"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="CancelWorldDeleteButton" Content="取消" Click="CancelWorldDelete_Click" MinWidth="90"/><Button x:Name="ConfirmWorldDeleteButton" Content="确认删除" Click="ConfirmWorldDelete_Click" Background="#9D4351" MinWidth="100" Margin="0"/></StackPanel>
+                </StackPanel>
             </Border>
         </Grid>
     </Grid>

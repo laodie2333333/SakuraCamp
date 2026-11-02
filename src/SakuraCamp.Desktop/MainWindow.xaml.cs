@@ -420,6 +420,7 @@ public partial class MainWindow : Window
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
         if (logsClosed) return;
+        if (deleteWorldConfirmation is not null) { e.Cancel = true; deleteWorldConfirmation.TrySetResult(false); return; }
         if (busy) { e.Cancel = true; StatusText.Text = "正在执行操作，请稍后再关闭。"; return; }
         e.Cancel = true;
         if (session.HasProcesses)
